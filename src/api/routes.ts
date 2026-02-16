@@ -15,6 +15,16 @@ import {
 let runningCount = 0
 const runningProcesses = new Map<string, () => void>()
 
+export function getRunningCount(): number {
+  return runningCount
+}
+
+export function forceAbortAll(): void {
+  for (const abort of runningProcesses.values()) {
+    abort()
+  }
+}
+
 export function createRoutes(config: Config): Hono {
   const app = new Hono()
 

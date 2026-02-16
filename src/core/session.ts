@@ -101,6 +101,22 @@ export function listSessions(workspaceRoot: string): SessionStore {
   return loadStore(workspaceRoot)
 }
 
+export function recoverSessions(workspaceRoot: string): number {
+  const store = loadStore(workspaceRoot)
+  let recovered = 0
+  for (const id of Object.keys(store)) {
+    if (store[id].status === 'running') {
+      store[id].status = 'idle'
+      store[id].last_active_at = new Date().toISOString()
+      recovered++
+    }
+  }
+  if (recovered > 0) {
+    saveStore(workspaceRoot, store)
+  }
+  return recovered
+}
+
 function messagesFilePath(workspaceRoot: string, sessionId: string): string {
   return join(workspaceRoot, `messages-${sessionId}.json`)
 }
