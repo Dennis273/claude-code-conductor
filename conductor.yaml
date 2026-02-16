@@ -1,0 +1,13 @@
+port: 4577
+concurrency: 3
+workspace_root: "/Users/dennis/.conductor/workspaces"
+
+envs:
+  full:
+    allowedTools: "Bash,Read,Edit,Write,Glob,Grep,WebSearch,WebFetch,Task"
+    max_turns: 20
+    env: {}
+  readonly:
+    allowedTools: "Read,Glob,Grep,WebSearch"
+    max_turns: 5
+    env: {}
