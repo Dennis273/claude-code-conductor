@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
+import { serveStatic } from '@hono/node-server/serve-static'
 import type { Config } from '../config.js'
 import { executePrompt } from '../core/claude.js'
 import {
@@ -129,11 +130,34 @@ export function createRoutes(config: Config): Hono {
               data: JSON.stringify({ text: event.text }),
             })
           } else if (event.type === 'tool_use') {
+            appendMessage(config.workspace_root, sessionId, {
+              role: 'tool_use',
+              content: '',
+              tool: event.tool,
+              input: event.input,
+              timestamp: new Date().toISOString(),
+            })
+
             await stream.writeSSE({
               event: 'tool_use',
               data: JSON.stringify({
                 tool: event.tool,
                 input: event.input,
+              }),
+            })
+          } else if (event.type === 'tool_result') {
+            appendMessage(config.workspace_root, sessionId, {
+              role: 'tool_result',
+              content: event.content,
+              is_error: event.is_error,
+              timestamp: new Date().toISOString(),
+            })
+
+            await stream.writeSSE({
+              event: 'tool_result',
+              data: JSON.stringify({
+                content: event.content,
+                is_error: event.is_error,
               }),
             })
           } else if (event.type === 'result') {
@@ -260,11 +284,34 @@ export function createRoutes(config: Config): Hono {
               data: JSON.stringify({ text: event.text }),
             })
           } else if (event.type === 'tool_use') {
+            appendMessage(config.workspace_root, sessionId, {
+              role: 'tool_use',
+              content: '',
+              tool: event.tool,
+              input: event.input,
+              timestamp: new Date().toISOString(),
+            })
+
             await stream.writeSSE({
               event: 'tool_use',
               data: JSON.stringify({
                 tool: event.tool,
                 input: event.input,
+              }),
+            })
+          } else if (event.type === 'tool_result') {
+            appendMessage(config.workspace_root, sessionId, {
+              role: 'tool_result',
+              content: event.content,
+              is_error: event.is_error,
+              timestamp: new Date().toISOString(),
+            })
+
+            await stream.writeSSE({
+              event: 'tool_result',
+              data: JSON.stringify({
+                content: event.content,
+                is_error: event.is_error,
               }),
             })
           } else if (event.type === 'result') {
@@ -386,6 +433,12 @@ export function createRoutes(config: Config): Hono {
       envs: Object.keys(config.envs),
     })
   })
+
+  // Static files — serve web/dist/ for production Web UI
+  app.use('*', serveStatic({ root: './web/dist' }))
+
+  // SPA fallback — serve index.html for client-side routes
+  app.use('*', serveStatic({ root: './web/dist', path: 'index.html' }))
 
   return app
 }

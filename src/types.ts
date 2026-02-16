@@ -15,6 +15,12 @@ export interface ToolUseEvent {
   input: Record<string, unknown>
 }
 
+export interface ToolResultEvent {
+  type: 'tool_result'
+  content: string
+  is_error: boolean
+}
+
 export interface ResultEvent {
   type: 'result'
   result: string
@@ -33,6 +39,7 @@ export type ConductorEvent =
   | SessionCreatedEvent
   | TextDeltaEvent
   | ToolUseEvent
+  | ToolResultEvent
   | ResultEvent
   | ErrorEvent
 
@@ -51,7 +58,10 @@ export interface PromptHandle {
 }
 
 export interface MessageEntry {
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'tool_use' | 'tool_result'
   content: string
+  tool?: string
+  input?: Record<string, unknown>
+  is_error?: boolean
   timestamp: string
 }

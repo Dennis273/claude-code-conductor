@@ -7,6 +7,8 @@ import {
   getSession,
   updateSessionStatus,
   listSessions,
+  appendMessage,
+  getMessages,
 } from '../core/session.js'
 
 const TEST_ROOT = '/tmp/conductor-test-sessions'
@@ -121,5 +123,53 @@ describe('session persistence', () => {
     expect(Object.keys(sessions)).toHaveLength(2)
     expect(sessions['session-1'].env).toBe('full')
     expect(sessions['session-2'].env).toBe('readonly')
+  })
+})
+
+describe('message persistence with tool_use', () => {
+  it('stores and retrieves tool_use messages alongside user/assistant', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+
+    appendMessage(TEST_ROOT, 'session-1', {
+      role: 'user',
+      content: '用 Bash 执行 echo hello',
+      timestamp: '2026-02-17T00:00:00.000Z',
+    })
+
+    appendMessage(TEST_ROOT, 'session-1', {
+      role: 'tool_use',
+      content: '',
+      tool: 'Bash',
+      input: { command: 'echo hello' },
+      timestamp: '2026-02-17T00:00:01.000Z',
+    })
+
+    appendMessage(TEST_ROOT, 'session-1', {
+      role: 'tool_result',
+      content: 'hello',
+      is_error: false,
+      timestamp: '2026-02-17T00:00:01.500Z',
+    })
+
+    appendMessage(TEST_ROOT, 'session-1', {
+      role: 'assistant',
+      content: '已执行 echo hello',
+      timestamp: '2026-02-17T00:00:02.000Z',
+    })
+
+    const messages = getMessages(TEST_ROOT, 'session-1')
+    expect(messages).toHaveLength(4)
+
+    expect(messages[0].role).toBe('user')
+
+    expect(messages[1].role).toBe('tool_use')
+    expect(messages[1].tool).toBe('Bash')
+    expect(messages[1].input).toEqual({ command: 'echo hello' })
+
+    expect(messages[2].role).toBe('tool_result')
+    expect(messages[2].content).toBe('hello')
+    expect(messages[2].is_error).toBe(false)
+
+    expect(messages[3].role).toBe('assistant')
   })
 })

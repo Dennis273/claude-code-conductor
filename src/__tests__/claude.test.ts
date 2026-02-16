@@ -41,6 +41,43 @@ describe('executePrompt', () => {
     expect(hasTextDelta).toBe(true)
   }, 30000)
 
+  it('yields tool_use events with non-empty input and matching tool_result', async () => {
+    const events: ConductorEvent[] = []
+
+    const handle = executePrompt({
+      prompt: '用 Bash 执行 echo hello',
+      cwd: '/tmp',
+      allowedTools: 'Bash',
+      maxTurns: 3,
+      env: {},
+    })
+
+    for await (const event of handle.events) {
+      events.push(event)
+    }
+
+    const toolUseEvents = events.filter((e) => e.type === 'tool_use')
+    expect(toolUseEvents.length).toBeGreaterThan(0)
+
+    // tool_use input must NOT be empty
+    for (const event of toolUseEvents) {
+      if (event.type === 'tool_use') {
+        expect(Object.keys(event.input).length).toBeGreaterThan(0)
+      }
+    }
+
+    // Each tool_use must be followed by a tool_result
+    const toolResultEvents = events.filter((e) => e.type === 'tool_result')
+    expect(toolResultEvents.length).toBe(toolUseEvents.length)
+
+    for (const event of toolResultEvents) {
+      if (event.type === 'tool_result') {
+        expect(typeof event.content).toBe('string')
+        expect(typeof event.is_error).toBe('boolean')
+      }
+    }
+  }, 60000)
+
   it('supports --resume with session_id', async () => {
     // First call: create session
     let sessionId = ''

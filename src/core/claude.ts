@@ -56,6 +56,10 @@ async function* parseStream(
   let sessionId = ''
   let stderrChunks: string[] = []
 
+  // Accumulate tool_use input from input_json_delta events
+  let pendingToolName = ''
+  let pendingToolInput = ''
+
   child.stderr!.on('data', (chunk: Buffer) => {
     stderrChunks.push(chunk.toString())
   })
@@ -99,14 +103,51 @@ async function* parseStream(
       if (event.type === 'content_block_start') {
         const contentBlock = event.content_block as Record<string, unknown> | undefined
         if (contentBlock?.type === 'tool_use') {
-          yield {
-            type: 'tool_use',
-            tool: contentBlock.name as string,
-            input: (contentBlock.input as Record<string, unknown>) ?? {},
+          pendingToolName = contentBlock.name as string
+          pendingToolInput = ''
+        }
+        continue
+      }
+
+      if (delta?.type === 'input_json_delta') {
+        pendingToolInput += delta.partial_json as string
+        continue
+      }
+
+      if (event.type === 'content_block_stop' && pendingToolName) {
+        let input: Record<string, unknown> = {}
+        try {
+          input = JSON.parse(pendingToolInput) as Record<string, unknown>
+        } catch {
+          // partial JSON failed to parse, yield what we have
+        }
+        yield {
+          type: 'tool_use',
+          tool: pendingToolName,
+          input,
+        }
+        pendingToolName = ''
+        pendingToolInput = ''
+        continue
+      }
+
+      continue
+    }
+
+    if (type === 'user') {
+      const message = parsed.message as Record<string, unknown> | undefined
+      const content = message?.content as Array<Record<string, unknown>> | undefined
+      if (content) {
+        for (const block of content) {
+          if (block.type === 'tool_result') {
+            yield {
+              type: 'tool_result',
+              content: (block.content as string) ?? '',
+              is_error: (block.is_error as boolean) ?? false,
+            }
           }
         }
       }
-
       continue
     }
 
