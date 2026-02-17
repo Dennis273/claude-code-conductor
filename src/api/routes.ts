@@ -1,3 +1,4 @@
+import { basename } from 'node:path'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { serveStatic } from '@hono/node-server/serve-static'
@@ -24,6 +25,11 @@ import {
   subscribe,
   markDone,
 } from '../core/event-bus.js'
+import {
+  handleMcpRequest,
+  startIdleTimer,
+  cancelIdleTimer,
+} from '../core/playwright-manager.js'
 import { formatSSEData } from './sse-format.js'
 import type { ConductorEvent } from '../types.js'
 
@@ -50,6 +56,7 @@ function startBackgroundConsumer(
   sessionId: string,
   events: AsyncGenerator<ConductorEvent>,
   config: Config,
+  playwrightWorkspaceId?: string,
 ): void {
   ;(async () => {
     let accumulatedText = ''
@@ -109,6 +116,10 @@ function startBackgroundConsumer(
       }
 
       markDone(sessionId)
+
+      if (playwrightWorkspaceId) {
+        startIdleTimer(playwrightWorkspaceId)
+      }
 
       // Keep bus alive for late subscribers, then clean up
       setTimeout(() => removeBus(sessionId), BUS_CLEANUP_DELAY_MS)
@@ -171,14 +182,23 @@ export function createRoutes(config: Config): Hono {
       return c.json({ error: { code: 'CLONE_FAILED', message } }, 500)
     }
 
-    if (envConfig.mcpServers) {
-      writeMcpConfig(workspacePath, envConfig.mcpServers)
+    const workspaceId = basename(workspacePath)
+
+    const httpServers = envConfig.playwright
+      ? { playwright: { type: 'http' as const, url: `http://localhost:${config.port}/mcp?session=${workspaceId}` } }
+      : undefined
+
+    if (envConfig.mcpServers || httpServers) {
+      writeMcpConfig(workspacePath, envConfig.mcpServers, httpServers)
     }
 
     let allowedTools = envConfig.allowedTools
     if (envConfig.mcpServers) {
       const mcpPatterns = Object.keys(envConfig.mcpServers).map(name => `mcp__${name}__*`)
       allowedTools = [allowedTools, ...mcpPatterns].join(',')
+    }
+    if (envConfig.playwright) {
+      allowedTools = [allowedTools, 'mcp__playwright__*'].join(',')
     }
 
     runningCount++
@@ -253,7 +273,12 @@ export function createRoutes(config: Config): Hono {
 
       // Publish session_created to bus, then hand off remaining events to background consumer
       publish(sessionId, firstEvent)
-      startBackgroundConsumer(sessionId, handle.events, config)
+      startBackgroundConsumer(
+        sessionId,
+        handle.events,
+        config,
+        envConfig.playwright ? workspaceId : undefined,
+      )
 
       return c.json({ session_id: sessionId, workspace: workspacePath })
     } catch (err) {
@@ -317,11 +342,19 @@ export function createRoutes(config: Config): Hono {
     }
 
     const envConfig = config.envs[session.env]
+    const workspaceId = basename(session.workspace)
+
+    if (envConfig.playwright) {
+      cancelIdleTimer(workspaceId)
+    }
 
     let allowedTools = envConfig.allowedTools
     if (envConfig.mcpServers) {
       const mcpPatterns = Object.keys(envConfig.mcpServers).map(name => `mcp__${name}__*`)
       allowedTools = [allowedTools, ...mcpPatterns].join(',')
+    }
+    if (envConfig.playwright) {
+      allowedTools = [allowedTools, 'mcp__playwright__*'].join(',')
     }
 
     runningCount++
@@ -357,7 +390,12 @@ export function createRoutes(config: Config): Hono {
       }
     }
 
-    startBackgroundConsumer(sessionId, skipSessionCreated(), config)
+    startBackgroundConsumer(
+      sessionId,
+      skipSessionCreated(),
+      config,
+      envConfig.playwright ? workspaceId : undefined,
+    )
 
     return c.json({ session_id: sessionId, status: 'running' })
   })
@@ -497,6 +535,45 @@ export function createRoutes(config: Config): Hono {
       active_sessions: Object.keys(store).length,
       envs: Object.keys(config.envs),
     })
+  })
+
+  // MCP Streamable HTTP endpoint for Playwright
+  app.all('/mcp', async (c) => {
+    const workspaceId = c.req.query('session')
+    if (!workspaceId) {
+      return c.json(
+        { error: { code: 'MISSING_PARAM', message: 'session query parameter is required' } },
+        400,
+      )
+    }
+
+    // Find session metadata to determine env and playwright config
+    const store = listSessions(config.workspace_root)
+    const workspacePath = `${config.workspace_root}/${workspaceId}`
+    const sessionEntry = Object.values(store).find((s) => s.workspace === workspacePath)
+    if (!sessionEntry) {
+      return c.json(
+        { error: { code: 'SESSION_NOT_FOUND', message: 'no session found for this workspace' } },
+        404,
+      )
+    }
+
+    const envConfig = config.envs[sessionEntry.env]
+    if (!envConfig?.playwright) {
+      return c.json(
+        { error: { code: 'PLAYWRIGHT_NOT_CONFIGURED', message: 'playwright is not configured for this env' } },
+        400,
+      )
+    }
+
+    const response = await handleMcpRequest(workspaceId, c, envConfig.playwright.headless)
+    if (!response) {
+      return c.json(
+        { error: { code: 'MCP_ERROR', message: 'MCP transport returned no response' } },
+        500,
+      )
+    }
+    return response
   })
 
   // Static files — serve web/dist/ for production Web UI
