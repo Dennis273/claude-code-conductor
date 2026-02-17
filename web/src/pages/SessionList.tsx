@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom"
 import {
   getSessions,
   getHealth,
-  streamSSE,
+  createSession,
   type SessionMetadata,
   type HealthInfo,
 } from "@/lib/api"
@@ -34,7 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Plus, Activity, RefreshCw } from "lucide-react"
+import { Plus, Activity, RefreshCw, Loader2 } from "lucide-react"
 
 function statusColor(status: string) {
   switch (status) {
@@ -64,13 +64,13 @@ export default function SessionList() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [creating, setCreating] = useState(false)
 
   // Create session form state
   const [prompt, setPrompt] = useState("")
   const [env, setEnv] = useState("")
   const [repo, setRepo] = useState("")
   const [branch, setBranch] = useState("")
-  const [creating, setCreating] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -97,32 +97,29 @@ export default function SessionList() {
   }, [refresh])
 
   async function handleCreate() {
-    if (!prompt.trim() || !env) return
+    if (!prompt.trim() || !env || creating) return
+
     setCreating(true)
+    setError(null)
 
     try {
-      const body: Record<string, string> = { prompt: prompt.trim(), env }
+      const body: { prompt: string; env: string; repo?: string; branch?: string } = {
+        prompt: prompt.trim(),
+        env,
+      }
       if (repo.trim()) body.repo = repo.trim()
       if (branch.trim()) body.branch = branch.trim()
 
-      // Consume SSE to get session_id, then navigate
-      const events = streamSSE("/sessions", body)
-      for await (const event of events) {
-        if (event.type === "session_created") {
-          setDialogOpen(false)
-          setPrompt("")
-          setRepo("")
-          setBranch("")
-          navigate(`/sessions/${event.session_id}`)
-          return
-        }
-        if (event.type === "error") {
-          alert(`Error: ${event.message}`)
-          break
-        }
-      }
+      const result = await createSession(body)
+
+      setDialogOpen(false)
+      setPrompt("")
+      setRepo("")
+      setBranch("")
+
+      navigate(`/sessions/${result.session_id}`)
     } catch (err) {
-      alert(`Failed to create session: ${err instanceof Error ? err.message : err}`)
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setCreating(false)
     }
@@ -223,12 +220,23 @@ export default function SessionList() {
                   )}
                 </div>
 
+                {error && (
+                  <p className="text-sm text-destructive">{error}</p>
+                )}
+
                 <DialogFooter>
                   <Button
                     onClick={handleCreate}
                     disabled={!prompt.trim() || !env || creating}
                   >
-                    {creating ? "Creating..." : "Create & Start"}
+                    {creating ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      "Create & Start"
+                    )}
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -239,7 +247,7 @@ export default function SessionList() {
         {/* Session list */}
         {loading ? (
           <p className="text-muted-foreground text-center py-12">Loading...</p>
-        ) : error ? (
+        ) : error && !dialogOpen ? (
           <Card className="border-destructive">
             <CardContent className="py-8 text-center">
               <p className="text-destructive font-medium mb-1">Connection Error</p>
@@ -272,19 +280,19 @@ export default function SessionList() {
                 >
                   <CardHeader className="py-3 px-4">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <CardTitle className="text-sm font-mono">
-                          {shortId(s.session_id)}
+                      <div className="flex items-center gap-2 min-w-0">
+                        <CardTitle className="text-sm truncate">
+                          {s.title || shortId(s.session_id)}
                         </CardTitle>
-                        <Badge variant={statusColor(s.status)}>
+                        <Badge variant={statusColor(s.status)} className="shrink-0">
                           {s.status === "running" && (
                             <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
                           )}
                           {s.status}
                         </Badge>
-                        <Badge variant="outline">{s.env}</Badge>
+                        <Badge variant="outline" className="shrink-0">{s.env}</Badge>
                       </div>
-                      <CardDescription className="text-xs">
+                      <CardDescription className="text-xs shrink-0 ml-2">
                         {s.message_count} msgs · {formatTime(s.created_at)}
                       </CardDescription>
                     </div>

@@ -59,21 +59,28 @@ describe('executePrompt', () => {
     const toolUseEvents = events.filter((e) => e.type === 'tool_use')
     expect(toolUseEvents.length).toBeGreaterThan(0)
 
-    // tool_use input must NOT be empty
+    // tool_use must have id and non-empty input
     for (const event of toolUseEvents) {
       if (event.type === 'tool_use') {
+        expect(event.id).toBeTruthy()
+        expect(event.id).toMatch(/^toolu_/)
         expect(Object.keys(event.input).length).toBeGreaterThan(0)
       }
     }
 
-    // Each tool_use must be followed by a tool_result
+    // Each tool_use must have a matching tool_result with tool_use_id
     const toolResultEvents = events.filter((e) => e.type === 'tool_result')
     expect(toolResultEvents.length).toBe(toolUseEvents.length)
 
+    const toolUseIds = new Set(
+      toolUseEvents.map((e) => (e.type === 'tool_use' ? e.id : ''))
+    )
     for (const event of toolResultEvents) {
       if (event.type === 'tool_result') {
         expect(typeof event.content).toBe('string')
         expect(typeof event.is_error).toBe('boolean')
+        expect(event.tool_use_id).toBeTruthy()
+        expect(toolUseIds.has(event.tool_use_id)).toBe(true)
       }
     }
   }, 60000)

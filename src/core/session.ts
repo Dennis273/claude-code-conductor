@@ -2,7 +2,8 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { execSync } from 'node:child_process'
-import type { MessageEntry } from '../types.js'
+import { z } from 'zod'
+import type { Message, ContentBlock } from '../types.js'
 
 export interface SessionMetadata {
   workspace: string
@@ -10,6 +11,7 @@ export interface SessionMetadata {
   repo: string | null
   branch: string | null
   status: 'idle' | 'running' | 'cancelled'
+  title: string
   created_at: string
   last_active_at: string
 }
@@ -17,6 +19,43 @@ export interface SessionMetadata {
 export interface SessionStore {
   [sessionId: string]: SessionMetadata
 }
+
+const SessionMetadataSchema = z.object({
+  workspace: z.string(),
+  env: z.string(),
+  repo: z.string().nullable(),
+  branch: z.string().nullable(),
+  status: z.enum(['idle', 'running', 'cancelled']),
+  title: z.string(),
+  created_at: z.string(),
+  last_active_at: z.string(),
+})
+
+const SessionStoreSchema = z.record(z.string(), SessionMetadataSchema)
+
+const ContentBlockSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('text'), text: z.string() }),
+  z.object({
+    type: z.literal('tool_use'),
+    id: z.string(),
+    name: z.string(),
+    input: z.record(z.string(), z.unknown()),
+  }),
+  z.object({
+    type: z.literal('tool_result'),
+    tool_use_id: z.string(),
+    content: z.string(),
+    is_error: z.boolean(),
+  }),
+])
+
+const MessageSchema = z.object({
+  role: z.enum(['user', 'assistant']),
+  content: z.array(ContentBlockSchema),
+  timestamp: z.string(),
+})
+
+const MessagesSchema = z.array(MessageSchema)
 
 function sessionsFilePath(workspaceRoot: string): string {
   return join(workspaceRoot, 'sessions.json')
@@ -28,7 +67,8 @@ function loadStore(workspaceRoot: string): SessionStore {
     return {}
   }
   const content = readFileSync(filePath, 'utf-8')
-  return JSON.parse(content) as SessionStore
+  const result = SessionStoreSchema.safeParse(JSON.parse(content))
+  return result.success ? result.data : {}
 }
 
 function saveStore(workspaceRoot: string, store: SessionStore): void {
@@ -97,6 +137,18 @@ export function updateSessionStatus(
   }
 }
 
+export function updateSessionTitle(
+  workspaceRoot: string,
+  sessionId: string,
+  title: string,
+): void {
+  const store = loadStore(workspaceRoot)
+  if (store[sessionId]) {
+    store[sessionId].title = title
+    saveStore(workspaceRoot, store)
+  }
+}
+
 export function listSessions(workspaceRoot: string): SessionStore {
   return loadStore(workspaceRoot)
 }
@@ -121,24 +173,37 @@ function messagesFilePath(workspaceRoot: string, sessionId: string): string {
   return join(workspaceRoot, `messages-${sessionId}.json`)
 }
 
-export function appendMessage(
+export function appendContentBlock(
   workspaceRoot: string,
   sessionId: string,
-  message: MessageEntry,
+  role: 'user' | 'assistant',
+  block: ContentBlock,
 ): void {
   const filePath = messagesFilePath(workspaceRoot, sessionId)
   const messages = getMessages(workspaceRoot, sessionId)
-  messages.push(message)
+  const last = messages[messages.length - 1]
+
+  if (last && last.role === role) {
+    last.content.push(block)
+  } else {
+    messages.push({
+      role,
+      content: [block],
+      timestamp: new Date().toISOString(),
+    })
+  }
+
   writeFileSync(filePath, JSON.stringify(messages, null, 2), 'utf-8')
 }
 
 export function getMessages(
   workspaceRoot: string,
   sessionId: string,
-): MessageEntry[] {
+): Message[] {
   const filePath = messagesFilePath(workspaceRoot, sessionId)
   if (!existsSync(filePath)) {
     return []
   }
-  return JSON.parse(readFileSync(filePath, 'utf-8')) as MessageEntry[]
+  const result = MessagesSchema.safeParse(JSON.parse(readFileSync(filePath, 'utf-8')))
+  return result.success ? result.data : []
 }

@@ -7,7 +7,7 @@ import {
   getSession,
   updateSessionStatus,
   listSessions,
-  appendMessage,
+  appendContentBlock,
   getMessages,
 } from '../core/session.js'
 
@@ -61,6 +61,7 @@ describe('session persistence', () => {
       repo: null,
       branch: null,
       status: 'idle' as const,
+      title: 'Test session',
       created_at: '2026-02-16T00:00:00.000Z',
       last_active_at: '2026-02-16T00:00:00.000Z',
     }
@@ -86,6 +87,7 @@ describe('session persistence', () => {
       repo: null,
       branch: null,
       status: 'idle',
+      title: 'Test',
       created_at: '2026-02-16T00:00:00.000Z',
       last_active_at: '2026-02-16T00:00:00.000Z',
     })
@@ -105,6 +107,7 @@ describe('session persistence', () => {
       repo: null,
       branch: null,
       status: 'idle',
+      title: 'Session A',
       created_at: '2026-02-16T00:00:00.000Z',
       last_active_at: '2026-02-16T00:00:00.000Z',
     })
@@ -115,6 +118,7 @@ describe('session persistence', () => {
       repo: '/path/to/repo',
       branch: 'main',
       status: 'running',
+      title: 'Session B',
       created_at: '2026-02-16T01:00:00.000Z',
       last_active_at: '2026-02-16T01:00:00.000Z',
     })
@@ -126,50 +130,158 @@ describe('session persistence', () => {
   })
 })
 
-describe('message persistence with tool_use', () => {
-  it('stores and retrieves tool_use messages alongside user/assistant', () => {
+describe('message persistence with CC-compatible format', () => {
+  it('stores user text as a Message with TextBlock', () => {
     mkdirSync(TEST_ROOT, { recursive: true })
 
-    appendMessage(TEST_ROOT, 'session-1', {
-      role: 'user',
-      content: '用 Bash 执行 echo hello',
-      timestamp: '2026-02-17T00:00:00.000Z',
+    appendContentBlock(TEST_ROOT, 'session-1', 'user', {
+      type: 'text',
+      text: '用 Bash 执行 echo hello',
     })
 
-    appendMessage(TEST_ROOT, 'session-1', {
-      role: 'tool_use',
-      content: '',
-      tool: 'Bash',
+    const messages = getMessages(TEST_ROOT, 'session-1')
+    expect(messages).toHaveLength(1)
+    expect(messages[0].role).toBe('user')
+    expect(messages[0].content).toHaveLength(1)
+    expect(messages[0].content[0]).toEqual({
+      type: 'text',
+      text: '用 Bash 执行 echo hello',
+    })
+    expect(messages[0].timestamp).toBeTruthy()
+  })
+
+  it('appends blocks to last message when role matches', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+
+    // Assistant sends text then uses a tool — same assistant message
+    appendContentBlock(TEST_ROOT, 'session-1', 'assistant', {
+      type: 'text',
+      text: 'Let me run that',
+    })
+    appendContentBlock(TEST_ROOT, 'session-1', 'assistant', {
+      type: 'tool_use',
+      id: 'toolu_123',
+      name: 'Bash',
       input: { command: 'echo hello' },
-      timestamp: '2026-02-17T00:00:01.000Z',
     })
 
-    appendMessage(TEST_ROOT, 'session-1', {
-      role: 'tool_result',
+    const messages = getMessages(TEST_ROOT, 'session-1')
+    expect(messages).toHaveLength(1)
+    expect(messages[0].role).toBe('assistant')
+    expect(messages[0].content).toHaveLength(2)
+    expect(messages[0].content[0]).toEqual({
+      type: 'text',
+      text: 'Let me run that',
+    })
+    expect(messages[0].content[1]).toEqual({
+      type: 'tool_use',
+      id: 'toolu_123',
+      name: 'Bash',
+      input: { command: 'echo hello' },
+    })
+  })
+
+  it('creates new message when role changes', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+
+    // Assistant message with tool_use
+    appendContentBlock(TEST_ROOT, 'session-1', 'assistant', {
+      type: 'tool_use',
+      id: 'toolu_123',
+      name: 'Bash',
+      input: { command: 'echo hello' },
+    })
+
+    // User message with tool_result (different role → new message)
+    appendContentBlock(TEST_ROOT, 'session-1', 'user', {
+      type: 'tool_result',
+      tool_use_id: 'toolu_123',
       content: 'hello',
       is_error: false,
-      timestamp: '2026-02-17T00:00:01.500Z',
     })
 
-    appendMessage(TEST_ROOT, 'session-1', {
-      role: 'assistant',
-      content: '已执行 echo hello',
-      timestamp: '2026-02-17T00:00:02.000Z',
+    const messages = getMessages(TEST_ROOT, 'session-1')
+    expect(messages).toHaveLength(2)
+    expect(messages[0].role).toBe('assistant')
+    expect(messages[1].role).toBe('user')
+    expect(messages[1].content[0]).toEqual({
+      type: 'tool_result',
+      tool_use_id: 'toolu_123',
+      content: 'hello',
+      is_error: false,
+    })
+  })
+
+  it('handles full conversation with parallel tool calls', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+
+    // User prompt
+    appendContentBlock(TEST_ROOT, 'session-1', 'user', {
+      type: 'text',
+      text: 'Run two commands',
+    })
+
+    // Assistant: text + 2 tool_use (parallel)
+    appendContentBlock(TEST_ROOT, 'session-1', 'assistant', {
+      type: 'text',
+      text: 'I will run both commands',
+    })
+    appendContentBlock(TEST_ROOT, 'session-1', 'assistant', {
+      type: 'tool_use',
+      id: 'toolu_aaa',
+      name: 'Bash',
+      input: { command: 'echo a' },
+    })
+    appendContentBlock(TEST_ROOT, 'session-1', 'assistant', {
+      type: 'tool_use',
+      id: 'toolu_bbb',
+      name: 'Bash',
+      input: { command: 'echo b' },
+    })
+
+    // User: 2 tool_result
+    appendContentBlock(TEST_ROOT, 'session-1', 'user', {
+      type: 'tool_result',
+      tool_use_id: 'toolu_aaa',
+      content: 'a',
+      is_error: false,
+    })
+    appendContentBlock(TEST_ROOT, 'session-1', 'user', {
+      type: 'tool_result',
+      tool_use_id: 'toolu_bbb',
+      content: 'b',
+      is_error: false,
+    })
+
+    // Assistant: final text
+    appendContentBlock(TEST_ROOT, 'session-1', 'assistant', {
+      type: 'text',
+      text: 'Both done',
     })
 
     const messages = getMessages(TEST_ROOT, 'session-1')
     expect(messages).toHaveLength(4)
 
+    // User prompt
     expect(messages[0].role).toBe('user')
+    expect(messages[0].content).toHaveLength(1)
 
-    expect(messages[1].role).toBe('tool_use')
-    expect(messages[1].tool).toBe('Bash')
-    expect(messages[1].input).toEqual({ command: 'echo hello' })
+    // Assistant: text + 2 tool_use in one message
+    expect(messages[1].role).toBe('assistant')
+    expect(messages[1].content).toHaveLength(3)
+    expect(messages[1].content[0].type).toBe('text')
+    expect(messages[1].content[1].type).toBe('tool_use')
+    expect(messages[1].content[2].type).toBe('tool_use')
 
-    expect(messages[2].role).toBe('tool_result')
-    expect(messages[2].content).toBe('hello')
-    expect(messages[2].is_error).toBe(false)
+    // User: 2 tool_result in one message
+    expect(messages[2].role).toBe('user')
+    expect(messages[2].content).toHaveLength(2)
+    expect(messages[2].content[0].type).toBe('tool_result')
+    expect(messages[2].content[1].type).toBe('tool_result')
 
+    // Assistant: final response
     expect(messages[3].role).toBe('assistant')
+    expect(messages[3].content).toHaveLength(1)
+    expect(messages[3].content[0]).toEqual({ type: 'text', text: 'Both done' })
   })
 })

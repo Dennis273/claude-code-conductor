@@ -8,13 +8,27 @@ import {
   saveSession,
   getSession,
   updateSessionStatus,
+  updateSessionTitle,
   listSessions,
-  appendMessage,
+  appendContentBlock,
   getMessages,
 } from '../core/session.js'
+import { generateTitle } from '../core/title.js'
+import {
+  createBus,
+  getBus,
+  removeBus,
+  publish,
+  subscribe,
+  markDone,
+} from '../core/event-bus.js'
+import { formatSSEData } from './sse-format.js'
+import type { ConductorEvent } from '../types.js'
 
 let runningCount = 0
 const runningProcesses = new Map<string, () => void>()
+
+const BUS_CLEANUP_DELAY_MS = 60_000
 
 export function getRunningCount(): number {
   return runningCount
@@ -26,10 +40,84 @@ export function forceAbortAll(): void {
   }
 }
 
+/**
+ * Background consumer: drives the claude process lifecycle independently of HTTP connections.
+ * Consumes events from the async generator, persists them, and publishes to EventBus.
+ */
+function startBackgroundConsumer(
+  sessionId: string,
+  events: AsyncGenerator<ConductorEvent>,
+  config: Config,
+): void {
+  ;(async () => {
+    let accumulatedText = ''
+
+    try {
+      for await (const event of events) {
+        if (event.type === 'text_delta') {
+          accumulatedText += event.text
+        } else if (event.type === 'tool_use') {
+          if (accumulatedText) {
+            appendContentBlock(config.workspace_root, sessionId, 'assistant', {
+              type: 'text',
+              text: accumulatedText,
+            })
+            accumulatedText = ''
+          }
+          appendContentBlock(config.workspace_root, sessionId, 'assistant', {
+            type: 'tool_use',
+            id: event.id,
+            name: event.tool,
+            input: event.input,
+          })
+        } else if (event.type === 'tool_result') {
+          appendContentBlock(config.workspace_root, sessionId, 'user', {
+            type: 'tool_result',
+            tool_use_id: event.tool_use_id,
+            content: event.content,
+            is_error: event.is_error,
+          })
+        } else if (event.type === 'result') {
+          if (accumulatedText) {
+            appendContentBlock(config.workspace_root, sessionId, 'assistant', {
+              type: 'text',
+              text: accumulatedText,
+            })
+            accumulatedText = ''
+          }
+        }
+
+        publish(sessionId, event)
+      }
+    } finally {
+      // Flush any remaining text
+      if (accumulatedText) {
+        appendContentBlock(config.workspace_root, sessionId, 'assistant', {
+          type: 'text',
+          text: accumulatedText,
+        })
+      }
+
+      runningCount--
+      runningProcesses.delete(sessionId)
+
+      const session = getSession(config.workspace_root, sessionId)
+      if (session && session.status === 'running') {
+        updateSessionStatus(config.workspace_root, sessionId, 'idle')
+      }
+
+      markDone(sessionId)
+
+      // Keep bus alive for late subscribers, then clean up
+      setTimeout(() => removeBus(sessionId), BUS_CLEANUP_DELAY_MS)
+    }
+  })()
+}
+
 export function createRoutes(config: Config): Hono {
   const app = new Hono()
 
-  // POST /sessions — create session + send first message
+  // POST /sessions — create session + send first message, returns JSON
   app.post('/sessions', async (c) => {
     const body = await c.req.json()
     const { prompt, env, repo, branch } = body
@@ -83,7 +171,7 @@ export function createRoutes(config: Config): Hono {
 
     runningCount++
 
-    const { events, abort } = executePrompt({
+    const handle = executePrompt({
       prompt,
       cwd: workspacePath,
       allowedTools: envConfig.allowedTools,
@@ -91,116 +179,81 @@ export function createRoutes(config: Config): Hono {
       env: envConfig.env,
     })
 
-    return streamSSE(c, async (stream) => {
-      let sessionId = ''
-
-      try {
-        for await (const event of events) {
-          if (event.type === 'session_created') {
-            sessionId = event.session_id
-            runningProcesses.set(sessionId, abort)
-
-            const now = new Date().toISOString()
-            saveSession(config.workspace_root, sessionId, {
-              workspace: workspacePath,
-              env,
-              repo: repo ?? null,
-              branch: branch ?? null,
-              status: 'running',
-              created_at: now,
-              last_active_at: now,
-            })
-
-            appendMessage(config.workspace_root, sessionId, {
-              role: 'user',
-              content: prompt,
-              timestamp: now,
-            })
-
-            await stream.writeSSE({
-              event: 'session_created',
-              data: JSON.stringify({
-                session_id: sessionId,
-                workspace: workspacePath,
-              }),
-            })
-          } else if (event.type === 'text_delta') {
-            await stream.writeSSE({
-              event: 'text_delta',
-              data: JSON.stringify({ text: event.text }),
-            })
-          } else if (event.type === 'tool_use') {
-            appendMessage(config.workspace_root, sessionId, {
-              role: 'tool_use',
-              content: '',
-              tool: event.tool,
-              input: event.input,
-              timestamp: new Date().toISOString(),
-            })
-
-            await stream.writeSSE({
-              event: 'tool_use',
-              data: JSON.stringify({
-                tool: event.tool,
-                input: event.input,
-              }),
-            })
-          } else if (event.type === 'tool_result') {
-            appendMessage(config.workspace_root, sessionId, {
-              role: 'tool_result',
-              content: event.content,
-              is_error: event.is_error,
-              timestamp: new Date().toISOString(),
-            })
-
-            await stream.writeSSE({
-              event: 'tool_result',
-              data: JSON.stringify({
-                content: event.content,
-                is_error: event.is_error,
-              }),
-            })
-          } else if (event.type === 'result') {
-            if (!sessionId) sessionId = event.session_id
-
-            appendMessage(config.workspace_root, sessionId, {
-              role: 'assistant',
-              content: event.result,
-              timestamp: new Date().toISOString(),
-            })
-
-            await stream.writeSSE({
-              event: 'result',
-              data: JSON.stringify({
-                result: event.result,
-                num_turns: event.num_turns,
-                cost_usd: event.cost_usd,
-              }),
-            })
-          } else if (event.type === 'error') {
-            await stream.writeSSE({
-              event: 'error',
-              data: JSON.stringify({
-                code: event.code,
-                message: event.message,
-              }),
-            })
-          }
-        }
-      } finally {
+    // Consume the first event to get session_id before returning JSON
+    try {
+      const firstResult = await handle.events.next()
+      if (firstResult.done) {
         runningCount--
-        runningProcesses.delete(sessionId)
-        if (sessionId) {
-          const session = getSession(config.workspace_root, sessionId)
-          if (session && session.status === 'running') {
-            updateSessionStatus(config.workspace_root, sessionId, 'idle')
-          }
-        }
+        return c.json(
+          {
+            error: {
+              code: 'SESSION_CREATE_FAILED',
+              message: 'claude process ended without session_created',
+            },
+          },
+          500,
+        )
       }
-    })
+
+      const firstEvent = firstResult.value
+      if (firstEvent.type !== 'session_created') {
+        runningCount--
+        return c.json(
+          {
+            error: {
+              code: 'SESSION_CREATE_FAILED',
+              message: `expected session_created, got ${firstEvent.type}`,
+            },
+          },
+          500,
+        )
+      }
+
+      const sessionId = firstEvent.session_id
+      runningProcesses.set(sessionId, handle.abort)
+
+      createBus(sessionId)
+
+      const now = new Date().toISOString()
+      const fallbackTitle = prompt.slice(0, 80)
+      saveSession(config.workspace_root, sessionId, {
+        workspace: workspacePath,
+        env,
+        repo: repo ?? null,
+        branch: branch ?? null,
+        status: 'running',
+        title: fallbackTitle,
+        created_at: now,
+        last_active_at: now,
+      })
+
+      generateTitle(prompt).then((title) => {
+        if (title) {
+          updateSessionTitle(config.workspace_root, sessionId, title)
+        }
+      })
+
+      appendContentBlock(config.workspace_root, sessionId, 'user', {
+        type: 'text',
+        text: prompt,
+      })
+
+      // Publish session_created to bus, then hand off remaining events to background consumer
+      publish(sessionId, firstEvent)
+      startBackgroundConsumer(sessionId, handle.events, config)
+
+      return c.json({ session_id: sessionId, workspace: workspacePath })
+    } catch (err) {
+      runningCount--
+      const message = err instanceof Error ? err.message : String(err)
+      return c.json(
+        { error: { code: 'SESSION_CREATE_FAILED', message } },
+        500,
+      )
+    }
   })
 
-  // POST /sessions/:id/messages — send follow-up message
+  // POST /sessions/:id/messages — send follow-up message, returns JSON
   app.post('/sessions/:id/messages', async (c) => {
     const sessionId = c.req.param('id')
     const body = await c.req.json()
@@ -255,13 +308,12 @@ export function createRoutes(config: Config): Hono {
     runningCount++
     updateSessionStatus(config.workspace_root, sessionId, 'running')
 
-    appendMessage(config.workspace_root, sessionId, {
-      role: 'user',
-      content: prompt,
-      timestamp: new Date().toISOString(),
+    appendContentBlock(config.workspace_root, sessionId, 'user', {
+      type: 'text',
+      text: prompt,
     })
 
-    const { events, abort } = executePrompt({
+    const handle = executePrompt({
       prompt,
       cwd: session.workspace,
       allowedTools: envConfig.allowedTools,
@@ -270,83 +322,76 @@ export function createRoutes(config: Config): Hono {
       resumeSessionId: sessionId,
     })
 
-    runningProcesses.set(sessionId, abort)
+    runningProcesses.set(sessionId, handle.abort)
+
+    // Create EventBus and start background consumer
+    createBus(sessionId)
+
+    // Wrap generator to skip session_created on resume
+    async function* skipSessionCreated() {
+      for await (const event of handle.events) {
+        if (event.type === 'session_created') continue
+        yield event
+      }
+    }
+
+    startBackgroundConsumer(sessionId, skipSessionCreated(), config)
+
+    return c.json({ session_id: sessionId, status: 'running' })
+  })
+
+  // GET /sessions/:id/events — SSE stream with replay
+  app.get('/sessions/:id/events', (c) => {
+    const sessionId = c.req.param('id')
+
+    const bus = getBus(sessionId)
+    if (!bus) {
+      return c.json(
+        {
+          error: {
+            code: 'NO_ACTIVE_STREAM',
+            message: `no active event stream for session '${sessionId}'`,
+          },
+        },
+        404,
+      )
+    }
 
     return streamSSE(c, async (stream) => {
-      try {
-        for await (const event of events) {
-          // Skip session_created on resume — API contract says follow-up has no session_created
-          if (event.type === 'session_created') continue
+      let streamClosed = false
 
-          if (event.type === 'text_delta') {
-            await stream.writeSSE({
-              event: 'text_delta',
-              data: JSON.stringify({ text: event.text }),
-            })
-          } else if (event.type === 'tool_use') {
-            appendMessage(config.workspace_root, sessionId, {
-              role: 'tool_use',
-              content: '',
-              tool: event.tool,
-              input: event.input,
-              timestamp: new Date().toISOString(),
-            })
+      const unsub = subscribe(sessionId, (event) => {
+        if (streamClosed) return
+        const sse = formatSSEData(event)
+        stream.writeSSE(sse).catch(() => {
+          streamClosed = true
+        })
+      })
 
-            await stream.writeSSE({
-              event: 'tool_use',
-              data: JSON.stringify({
-                tool: event.tool,
-                input: event.input,
-              }),
-            })
-          } else if (event.type === 'tool_result') {
-            appendMessage(config.workspace_root, sessionId, {
-              role: 'tool_result',
-              content: event.content,
-              is_error: event.is_error,
-              timestamp: new Date().toISOString(),
-            })
+      // Wait until the bus is done or the client disconnects
+      await new Promise<void>((resolve) => {
+        // Check if already done (all events were replayed synchronously)
+        if (bus.done) {
+          resolve()
+          return
+        }
 
-            await stream.writeSSE({
-              event: 'tool_result',
-              data: JSON.stringify({
-                content: event.content,
-                is_error: event.is_error,
-              }),
-            })
-          } else if (event.type === 'result') {
-            appendMessage(config.workspace_root, sessionId, {
-              role: 'assistant',
-              content: event.result,
-              timestamp: new Date().toISOString(),
-            })
-
-            await stream.writeSSE({
-              event: 'result',
-              data: JSON.stringify({
-                result: event.result,
-                num_turns: event.num_turns,
-                cost_usd: event.cost_usd,
-              }),
-            })
-          } else if (event.type === 'error') {
-            await stream.writeSSE({
-              event: 'error',
-              data: JSON.stringify({
-                code: event.code,
-                message: event.message,
-              }),
-            })
+        // Poll for bus.done or client abort
+        const interval = setInterval(() => {
+          if (bus.done || streamClosed) {
+            clearInterval(interval)
+            resolve()
           }
-        }
-      } finally {
-        runningCount--
-        runningProcesses.delete(sessionId)
-        const current = getSession(config.workspace_root, sessionId)
-        if (current && current.status === 'running') {
-          updateSessionStatus(config.workspace_root, sessionId, 'idle')
-        }
-      }
+        }, 100)
+
+        stream.onAbort(() => {
+          streamClosed = true
+          clearInterval(interval)
+          resolve()
+        })
+      })
+
+      unsub()
     })
   })
 
@@ -381,8 +426,6 @@ export function createRoutes(config: Config): Hono {
     }
 
     abortFn()
-    runningProcesses.delete(sessionId)
-    runningCount--
     updateSessionStatus(config.workspace_root, sessionId, 'cancelled')
 
     return c.json({ session_id: sessionId, status: 'cancelled' })
