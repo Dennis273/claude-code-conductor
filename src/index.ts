@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server'
 import { loadConfig } from './config.js'
 import { createRoutes, getRunningCount, forceAbortAll } from './api/routes.js'
 import { recoverSessions } from './core/session.js'
+import { destroyAll } from './core/playwright-manager.js'
 
 const config = loadConfig()
 
@@ -37,6 +38,7 @@ async function gracefulShutdown(signal: string) {
     await new Promise((r) => setTimeout(r, 1000))
   }
 
+  await destroyAll()
   console.log('Shutdown complete')
   process.exit(0)
 }

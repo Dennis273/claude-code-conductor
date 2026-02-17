@@ -17,10 +17,12 @@ describe('loadConfig', () => {
     expect(config.envs.full.allowedTools).toContain('Bash')
     expect(config.envs.full.max_turns).toBe(20)
     expect(config.envs.full.env).toEqual({})
+    expect(config.envs.full.playwright).toEqual({ headless: false })
 
     expect(config.envs.readonly.allowedTools).toContain('Read')
     expect(config.envs.readonly.allowedTools).not.toContain('Bash')
     expect(config.envs.readonly.max_turns).toBe(5)
+    expect(config.envs.readonly.playwright).toBeUndefined()
   })
 })
 

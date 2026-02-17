@@ -7,6 +7,8 @@ envs:
     allowedTools: "Bash,Read,Edit,Write,Glob,Grep,WebSearch,WebFetch,Task"
     max_turns: 20
     env: {}
+    playwright:
+      headless: false
   readonly:
     allowedTools: "Read,Glob,Grep,WebSearch"
     max_turns: 5
