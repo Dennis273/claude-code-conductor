@@ -3,9 +3,12 @@ import { useParams, useNavigate } from "react-router-dom"
 import {
   getSession,
   cancelSession,
-  streamSSE,
+  subscribeEvents,
+  sendMessage,
   type SessionDetail as SessionDetailType,
   type SSEEvent,
+  type Message,
+  type ContentBlock,
 } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -26,19 +29,14 @@ import {
   CircleCheck,
   CircleX,
 } from "lucide-react"
-
-type ChatItem =
-  | { kind: "user"; content: string; timestamp?: string }
-  | { kind: "assistant"; content: string; timestamp?: string }
-  | { kind: "tool_use"; tool: string; input: Record<string, unknown> }
-  | { kind: "tool_result"; content: string; is_error: boolean }
+import Markdown from "react-markdown"
 
 export default function SessionDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
 
   const [session, setSession] = useState<SessionDetailType | null>(null)
-  const [chatItems, setChatItems] = useState<ChatItem[]>([])
+  const [messages, setMessages] = useState<Message[]>([])
   const [streamingText, setStreamingText] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
   const [inputText, setInputText] = useState("")
@@ -59,62 +57,71 @@ export default function SessionDetail() {
     }
   }, [])
 
-  // Load session data
+  // On mount: try SSE subscription (for running sessions), fall back to REST
   useEffect(() => {
     if (!id) return
 
-    async function load() {
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    ;(async () => {
       try {
-        const data = await getSession(id!)
-        setSession(data)
-
-        // Convert messages to chat items
-        const items: ChatItem[] = data.messages.map((m) => {
-          if (m.role === "tool_use") {
-            return {
-              kind: "tool_use" as const,
-              tool: m.tool ?? "unknown",
-              input: m.input ?? {},
-            }
-          }
-          if (m.role === "tool_result") {
-            return {
-              kind: "tool_result" as const,
-              content: m.content,
-              is_error: m.is_error ?? false,
-            }
-          }
-          return {
-            kind: m.role as "user" | "assistant",
-            content: m.content,
-            timestamp: m.timestamp,
-          }
-        })
-        setChatItems(items)
-
-        // If session is running, it might have been started from elsewhere
-        // We can't attach to its stream, but we can show the status
-        if (data.status === "running") {
-          setIsStreaming(true)
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err))
-      } finally {
+        // Try subscribing to live events first (works if session has an active bus)
+        const events = subscribeEvents(id, controller.signal)
         setLoading(false)
-      }
-    }
+        setIsStreaming(true)
+        await consumeStream(events)
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return
 
-    load()
+        // SSE subscription failed (404 = no active bus) — load session via REST
+        try {
+          await loadSession(id)
+        } catch (loadErr) {
+          if (loadErr instanceof Error && loadErr.name === "AbortError") return
+          setError(loadErr instanceof Error ? loadErr.message : String(loadErr))
+          setLoading(false)
+        }
+      }
+    })()
 
     return () => {
-      abortRef.current?.abort()
+      controller.abort()
     }
-  }, [id])
+  }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadSession(sessionId: string) {
+    const data = await getSession(sessionId)
+    setSession(data)
+    setMessages(data.messages)
+    setLoading(false)
+  }
 
   // Auto-scroll when content changes
   useEffect(() => {
     scrollToBottom()
-  }, [chatItems, streamingText, scrollToBottom])
+  }, [messages, streamingText, scrollToBottom])
+
+  function appendBlock(role: "user" | "assistant", block: ContentBlock) {
+    setMessages((prev) => {
+      const next = [...prev]
+      const last = next[next.length - 1]
+
+      if (last && last.role === role) {
+        next[next.length - 1] = {
+          ...last,
+          content: [...last.content, block],
+        }
+      } else {
+        next.push({
+          role,
+          content: [block],
+          timestamp: new Date().toISOString(),
+        })
+      }
+      return next
+    })
+  }
 
   async function consumeStream(events: AsyncGenerator<SSEEvent>) {
     let accumulated = ""
@@ -123,11 +130,22 @@ export default function SessionDetail() {
       for await (const event of events) {
         switch (event.type) {
           case "session_created":
-            // For new sessions, update session info
             setSession((prev) =>
               prev
-                ? { ...prev, session_id: event.session_id, status: "running" }
-                : prev,
+                ? { ...prev, session_id: event.session_id, workspace: event.workspace, status: "running" }
+                : {
+                    session_id: event.session_id,
+                    workspace: event.workspace,
+                    env: "",
+                    repo: null,
+                    branch: null,
+                    status: "running",
+                    title: "",
+                    created_at: new Date().toISOString(),
+                    last_active_at: new Date().toISOString(),
+                    message_count: 0,
+                    messages: [],
+                  },
             )
             break
 
@@ -136,44 +154,51 @@ export default function SessionDetail() {
             setStreamingText(accumulated)
             break
 
-          case "tool_use":
-            // If we have accumulated text before this tool_use, flush it
+          case "tool_use": {
             if (accumulated) {
-              setChatItems((prev) => [
-                ...prev,
-                { kind: "assistant", content: accumulated },
-              ])
+              appendBlock("assistant", { type: "text", text: accumulated })
               accumulated = ""
               setStreamingText("")
             }
-            setChatItems((prev) => [
-              ...prev,
-              { kind: "tool_use", tool: event.tool, input: event.input },
-            ])
+            appendBlock("assistant", {
+              type: "tool_use",
+              id: event.id,
+              name: event.tool,
+              input: event.input,
+            })
             break
+          }
 
           case "tool_result":
-            setChatItems((prev) => [
-              ...prev,
-              {
-                kind: "tool_result",
-                content: event.content,
-                is_error: event.is_error,
-              },
-            ])
+            appendBlock("user", {
+              type: "tool_result",
+              tool_use_id: event.tool_use_id,
+              content: event.content,
+              is_error: event.is_error,
+            })
             break
 
           case "result":
-            // Final result — the accumulated text is the complete response
             if (accumulated) {
-              setChatItems((prev) => [
-                ...prev,
-                { kind: "assistant", content: accumulated },
-              ])
+              appendBlock("assistant", { type: "text", text: accumulated })
               accumulated = ""
               setStreamingText("")
             }
+            if (event.is_error) {
+              const errorMsg = event.errors.length > 0
+                ? event.errors.join("\n")
+                : `Execution stopped: ${event.subtype}`
+              setError(errorMsg)
+            }
             setSession((prev) => (prev ? { ...prev, status: "idle" } : prev))
+            break
+
+          case "raw_message":
+            appendBlock("assistant", {
+              type: "raw_message",
+              message_type: event.message_type,
+              raw: event.raw,
+            })
             break
 
           case "error":
@@ -182,16 +207,14 @@ export default function SessionDetail() {
         }
       }
     } catch (err) {
-      if ((err as Error).name !== "AbortError") {
-        setError(err instanceof Error ? err.message : String(err))
+      if (err instanceof Error && err.name !== "AbortError") {
+        setError(err.message)
+      } else if (!(err instanceof Error)) {
+        setError(String(err))
       }
     } finally {
-      // If there's remaining accumulated text (e.g., stream ended without result event)
       if (accumulated) {
-        setChatItems((prev) => [
-          ...prev,
-          { kind: "assistant", content: accumulated },
-        ])
+        appendBlock("assistant", { type: "text", text: accumulated })
         setStreamingText("")
       }
       setIsStreaming(false)
@@ -210,25 +233,30 @@ export default function SessionDetail() {
     setIsStreaming(true)
     setStreamingText("")
 
-    // Add user message to chat
-    setChatItems((prev) => [...prev, { kind: "user", content: text }])
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "user",
+        content: [{ type: "text", text }],
+        timestamp: new Date().toISOString(),
+      },
+    ])
     setSession((prev) => (prev ? { ...prev, status: "running" } : prev))
 
     const controller = new AbortController()
     abortRef.current = controller
 
     try {
-      const events = streamSSE(
-        `/sessions/${id}/messages`,
-        { prompt: text },
-        controller.signal,
-      )
+      await sendMessage(id, text)
+      const events = subscribeEvents(id, controller.signal)
       await consumeStream(events)
     } catch (err) {
-      if ((err as Error).name !== "AbortError") {
-        setError(err instanceof Error ? err.message : String(err))
-        setIsStreaming(false)
+      if (err instanceof Error && err.name !== "AbortError") {
+        setError(err.message)
+      } else if (!(err instanceof Error)) {
+        setError(String(err))
       }
+      setIsStreaming(false)
     }
   }
 
@@ -274,6 +302,22 @@ export default function SessionDetail() {
     )
   }
 
+  // Build tool_use_id → tool_result map for pairing
+  const toolResultMap = new Map<string, { content: string; is_error: boolean }>()
+  for (const msg of messages) {
+    for (const block of msg.content) {
+      if (block.type === "tool_result") {
+        toolResultMap.set(block.tool_use_id, {
+          content: block.content,
+          is_error: block.is_error,
+        })
+      }
+    }
+  }
+
+  const lastBlock = messages.at(-1)?.content.at(-1)
+  const lastBlockIsToolUse = lastBlock?.type === "tool_use"
+
   return (
     <div className="flex h-screen flex-col bg-background">
       {/* Top bar */}
@@ -284,7 +328,7 @@ export default function SessionDetail() {
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-mono text-sm">{id?.slice(0, 8)}</span>
+            <span className="text-sm font-medium truncate">{session.title || id?.slice(0, 8)}</span>
             <Badge
               variant={
                 session.status === "running"
@@ -319,71 +363,70 @@ export default function SessionDetail() {
       {/* Chat area */}
       <ScrollArea className="flex-1" ref={scrollRef}>
         <div className="mx-auto max-w-3xl p-4 space-y-3">
-          {chatItems.map((item, i) => {
-            if (item.kind === "user") {
-              return (
-                <div key={i} className="flex justify-end">
-                  <div className="max-w-[80%] rounded-lg bg-primary px-3 py-2 text-primary-foreground">
-                    <p className="text-sm whitespace-pre-wrap">
-                      {item.content}
-                    </p>
+          {messages.map((msg, msgIdx) =>
+            msg.content.map((block, blockIdx) => {
+              const key = `${msgIdx}-${blockIdx}`
+
+              if (block.type === "text") {
+                if (msg.role === "user") {
+                  return (
+                    <div key={key} className="flex justify-end">
+                      <div className="max-w-[80%] rounded-lg bg-primary px-3 py-2 text-primary-foreground">
+                        <p className="text-sm whitespace-pre-wrap">
+                          {block.text}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                }
+                return (
+                  <div key={key} className="flex justify-start">
+                    <div className="max-w-[80%] rounded-lg bg-muted px-3 py-2 prose prose-sm dark:prose-invert prose-p:my-1 prose-pre:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-headings:my-1 max-w-none">
+                      <Markdown>{block.text}</Markdown>
+                    </div>
                   </div>
-                </div>
-              )
-            }
+                )
+              }
 
-            if (item.kind === "assistant") {
-              return (
-                <div key={i} className="flex justify-start">
-                  <div className="max-w-[80%] rounded-lg bg-muted px-3 py-2">
-                    <p className="text-sm whitespace-pre-wrap">
-                      {item.content}
-                    </p>
-                  </div>
-                </div>
-              )
-            }
+              if (block.type === "tool_use") {
+                const result = toolResultMap.get(block.id)
+                return (
+                  <ToolUseCard
+                    key={key}
+                    tool={block.name}
+                    input={block.input}
+                    result={result}
+                  />
+                )
+              }
 
-            if (item.kind === "tool_use") {
-              // Look ahead for a matching tool_result
-              const next = chatItems[i + 1]
-              const result =
-                next?.kind === "tool_result" ? next : undefined
-              return (
-                <ToolUseCard
-                  key={i}
-                  tool={item.tool}
-                  input={item.input}
-                  result={result}
-                />
-              )
-            }
+              if (block.type === "raw_message") {
+                return (
+                  <RawMessageCard
+                    key={key}
+                    messageType={block.message_type}
+                    raw={block.raw}
+                  />
+                )
+              }
 
-            if (item.kind === "tool_result") {
-              // Already rendered as part of the preceding tool_use card
-              // But render standalone if there's no preceding tool_use (edge case)
-              const prev = chatItems[i - 1]
-              if (prev?.kind === "tool_use") return null
-              return <ToolResultCard key={i} content={item.content} is_error={item.is_error} />
-            }
-
-            return null
-          })}
+              // tool_result blocks are rendered inline with ToolUseCard via toolResultMap
+              return null
+            }),
+          )}
 
           {/* Streaming text (current assistant response being built) */}
           {streamingText && (
             <div className="flex justify-start">
-              <div className="max-w-[80%] rounded-lg bg-muted px-3 py-2">
-                <p className="text-sm whitespace-pre-wrap">
-                  {streamingText}
-                  <span className="inline-block w-1.5 h-4 bg-foreground/70 animate-pulse ml-0.5 align-text-bottom" />
-                </p>
+              <div className="max-w-[80%] rounded-lg bg-muted px-3 py-2 prose prose-sm dark:prose-invert prose-p:my-1 prose-pre:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-headings:my-1 max-w-none">
+                <Markdown>{streamingText}</Markdown>
+                <span className="inline-block w-1.5 h-4 bg-foreground/70 animate-pulse ml-0.5 align-text-bottom" />
               </div>
             </div>
           )}
 
           {/* Streaming indicator when no text yet */}
-          {isStreaming && !streamingText && chatItems.at(-1)?.kind !== "tool_use" && (
+          {isStreaming && !streamingText && !lastBlockIsToolUse && (
             <div className="flex justify-start">
               <div className="rounded-lg bg-muted px-3 py-2">
                 <div className="flex gap-1">
@@ -445,7 +488,7 @@ function ToolUseCard({
   return (
     <Collapsible>
       <CollapsibleTrigger className="w-full">
-        <Card className="hover:bg-muted/50 transition-colors">
+        <Card className="hover:bg-muted/50 transition-colors py-0 gap-0">
           <CardContent className="flex items-center gap-2 py-2 px-3">
             <Wrench className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             <span className="text-sm font-medium">{tool}</span>
@@ -482,21 +525,33 @@ function ToolUseCard({
   )
 }
 
-function ToolResultCard({
-  content,
-  is_error,
+function RawMessageCard({
+  messageType,
+  raw,
 }: {
-  content: string
-  is_error: boolean
+  messageType: string
+  raw: Record<string, unknown>
 }) {
   return (
-    <div className={`ml-4 rounded-md p-3 ${is_error ? "bg-destructive/10" : "bg-muted/30"}`}>
-      <p className="text-xs font-medium text-muted-foreground mb-1">
-        {is_error ? "Tool Error" : "Tool Output"}
-      </p>
-      <pre className="text-xs overflow-x-auto whitespace-pre-wrap break-all">
-        {content || "(empty)"}
-      </pre>
-    </div>
+    <Collapsible>
+      <CollapsibleTrigger className="w-full">
+        <Card className="hover:bg-muted/50 transition-colors py-0 gap-0">
+          <CardContent className="flex items-center gap-2 py-2 px-3">
+            <span className="h-3.5 w-3.5 rounded-full bg-muted-foreground/30 shrink-0" />
+            <span className="text-sm font-medium text-muted-foreground">{messageType}</span>
+            <ChevronDown className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
+          </CardContent>
+        </Card>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="ml-4 mt-1">
+          <div className="rounded-md bg-muted/30 p-3">
+            <pre className="text-xs overflow-x-auto whitespace-pre-wrap break-all text-muted-foreground">
+              {JSON.stringify(raw, null, 2)}
+            </pre>
+          </div>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }

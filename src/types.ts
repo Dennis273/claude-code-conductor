@@ -1,3 +1,5 @@
+// --- Streaming events (from claude.ts parser) ---
+
 export interface SessionCreatedEvent {
   type: 'session_created'
   session_id: string
@@ -11,28 +13,39 @@ export interface TextDeltaEvent {
 
 export interface ToolUseEvent {
   type: 'tool_use'
+  id: string
   tool: string
   input: Record<string, unknown>
 }
 
 export interface ToolResultEvent {
   type: 'tool_result'
+  tool_use_id: string
   content: string
   is_error: boolean
 }
 
 export interface ResultEvent {
   type: 'result'
+  subtype: string
+  is_error: boolean
   result: string
   session_id: string
   num_turns: number
   cost_usd: number
+  errors: string[]
 }
 
 export interface ErrorEvent {
   type: 'error'
   code: string
   message: string
+}
+
+export interface RawMessageEvent {
+  type: 'raw_message'
+  message_type: string
+  raw: Record<string, unknown>
 }
 
 export type ConductorEvent =
@@ -42,6 +55,7 @@ export type ConductorEvent =
   | ToolResultEvent
   | ResultEvent
   | ErrorEvent
+  | RawMessageEvent
 
 export interface PromptOptions {
   prompt: string
@@ -57,11 +71,33 @@ export interface PromptHandle {
   abort: () => void
 }
 
-export interface MessageEntry {
-  role: 'user' | 'assistant' | 'tool_use' | 'tool_result'
+// --- Content blocks (Anthropic API / Claude Code format) ---
+
+export interface TextBlock {
+  type: 'text'
+  text: string
+}
+
+export interface ToolUseBlock {
+  type: 'tool_use'
+  id: string
+  name: string
+  input: Record<string, unknown>
+}
+
+export interface ToolResultBlock {
+  type: 'tool_result'
+  tool_use_id: string
   content: string
-  tool?: string
-  input?: Record<string, unknown>
-  is_error?: boolean
+  is_error: boolean
+}
+
+export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock
+
+// --- Conversation message (CC-compatible) ---
+
+export interface Message {
+  role: 'user' | 'assistant'
+  content: ContentBlock[]
   timestamp: string
 }
