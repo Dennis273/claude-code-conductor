@@ -13,16 +13,12 @@ export interface HttpMcpServerConfig {
   url: string
 }
 
-export interface PlaywrightConfig {
-  headless: boolean
-}
-
 export interface EnvConfig {
   allowedTools: string
   max_turns?: number
   env: Record<string, string>
   mcpServers?: Record<string, McpServerConfig>
-  playwright?: PlaywrightConfig
+  playwright?: true
 }
 
 export interface Config {
@@ -136,16 +132,12 @@ export function validate(raw: unknown): Config {
       }
     }
 
-    let playwright: PlaywrightConfig | undefined
+    let playwright: true | undefined
     if (env.playwright !== undefined) {
-      if (typeof env.playwright !== 'object' || env.playwright === null) {
-        throw new Error(`Config: env "${name}.playwright" must be an object`)
+      if (env.playwright !== true) {
+        throw new Error(`Config: env "${name}.playwright" must be true`)
       }
-      const pw = env.playwright as Record<string, unknown>
-      if (typeof pw.headless !== 'boolean') {
-        throw new Error(`Config: env "${name}.playwright.headless" must be a boolean`)
-      }
-      playwright = { headless: pw.headless }
+      playwright = true
     }
 
     const maxTurns = typeof env.max_turns === 'number' ? env.max_turns : undefined

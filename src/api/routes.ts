@@ -541,26 +541,7 @@ export function createRoutes(config: Config): Hono {
       )
     }
 
-    // Find session metadata to determine env and playwright config
-    const store = listSessions(config.workspace_root)
-    const workspacePath = `${config.workspace_root}/${workspaceId}`
-    const sessionEntry = Object.values(store).find((s) => s.workspace === workspacePath)
-    if (!sessionEntry) {
-      return c.json(
-        { error: { code: 'SESSION_NOT_FOUND', message: 'no session found for this workspace' } },
-        404,
-      )
-    }
-
-    const envConfig = config.envs[sessionEntry.env]
-    if (!envConfig?.playwright) {
-      return c.json(
-        { error: { code: 'PLAYWRIGHT_NOT_CONFIGURED', message: 'playwright is not configured for this env' } },
-        400,
-      )
-    }
-
-    const response = await handleMcpRequest(workspaceId, c, envConfig.playwright.headless)
+    const response = await handleMcpRequest(workspaceId, c)
     if (!response) {
       return c.json(
         { error: { code: 'MCP_ERROR', message: 'MCP transport returned no response' } },

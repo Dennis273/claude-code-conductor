@@ -69,7 +69,7 @@ describe('playwright-manager', () => {
       expect(getActiveCount()).toBe(0)
 
       const ctx = createMockContext()
-      await handleMcpRequest('ws-1', ctx, false)
+      await handleMcpRequest('ws-1', ctx)
 
       expect(chromium.launch).toHaveBeenCalledWith({ headless: false })
       expect(createConnection).toHaveBeenCalled()
@@ -79,10 +79,10 @@ describe('playwright-manager', () => {
 
     it('reuses transport for requests with mcp-session-id header', async () => {
       const initCtx = createMockContext()
-      await handleMcpRequest('ws-1', initCtx, false)
+      await handleMcpRequest('ws-1', initCtx)
 
       const followUpCtx = createMockContext({ mcpSessionId: 'some-session-id' })
-      await handleMcpRequest('ws-1', followUpCtx, false)
+      await handleMcpRequest('ws-1', followUpCtx)
 
       expect(chromium.launch).toHaveBeenCalledTimes(1)
       expect(createConnection).toHaveBeenCalledTimes(1)
@@ -91,13 +91,13 @@ describe('playwright-manager', () => {
 
     it('creates new server+transport on re-initialization without mcp-session-id', async () => {
       const ctx1 = createMockContext()
-      await handleMcpRequest('ws-1', ctx1, false)
+      await handleMcpRequest('ws-1', ctx1)
 
       expect(createConnection).toHaveBeenCalledTimes(1)
 
       // Second claude -p process sends initialize (no mcp-session-id)
       const ctx2 = createMockContext()
-      await handleMcpRequest('ws-1', ctx2, false)
+      await handleMcpRequest('ws-1', ctx2)
 
       // Browser reused, but server + transport recreated
       expect(chromium.launch).toHaveBeenCalledTimes(1)
@@ -108,19 +108,18 @@ describe('playwright-manager', () => {
     it('creates separate sessions for different workspaces', async () => {
       const ctx = createMockContext()
 
-      await handleMcpRequest('ws-1', ctx, false)
-      await handleMcpRequest('ws-2', ctx, true)
+      await handleMcpRequest('ws-1', ctx)
+      await handleMcpRequest('ws-2', ctx)
 
       expect(chromium.launch).toHaveBeenCalledTimes(2)
       expect(chromium.launch).toHaveBeenCalledWith({ headless: false })
-      expect(chromium.launch).toHaveBeenCalledWith({ headless: true })
       expect(getActiveCount()).toBe(2)
     })
 
     it('delegates to transport.handleRequest', async () => {
       const ctx = createMockContext()
 
-      const response = await handleMcpRequest('ws-1', ctx, false)
+      const response = await handleMcpRequest('ws-1', ctx)
 
       expect(response).toBeInstanceOf(Response)
     })
@@ -129,7 +128,7 @@ describe('playwright-manager', () => {
   describe('idle timer', () => {
     it('destroys session after timeout', async () => {
       const mockContext = createMockContext()
-      await handleMcpRequest('ws-1', mockContext, false)
+      await handleMcpRequest('ws-1', mockContext)
 
       startIdleTimer('ws-1')
       expect(getActiveCount()).toBe(1)
@@ -141,7 +140,7 @@ describe('playwright-manager', () => {
 
     it('does not destroy before timeout', async () => {
       const mockContext = createMockContext()
-      await handleMcpRequest('ws-1', mockContext, false)
+      await handleMcpRequest('ws-1', mockContext)
 
       startIdleTimer('ws-1')
 
@@ -152,7 +151,7 @@ describe('playwright-manager', () => {
 
     it('cancelIdleTimer prevents destruction', async () => {
       const mockContext = createMockContext()
-      await handleMcpRequest('ws-1', mockContext, false)
+      await handleMcpRequest('ws-1', mockContext)
 
       startIdleTimer('ws-1')
       cancelIdleTimer('ws-1')
@@ -164,7 +163,7 @@ describe('playwright-manager', () => {
 
     it('startIdleTimer resets existing timer', async () => {
       const mockContext = createMockContext()
-      await handleMcpRequest('ws-1', mockContext, false)
+      await handleMcpRequest('ws-1', mockContext)
 
       startIdleTimer('ws-1')
       await vi.advanceTimersByTimeAsync(3 * 60 * 1000)
@@ -194,7 +193,7 @@ describe('playwright-manager', () => {
   describe('destroySession', () => {
     it('closes browser and removes from map', async () => {
       const mockContext = createMockContext()
-      await handleMcpRequest('ws-1', mockContext, false)
+      await handleMcpRequest('ws-1', mockContext)
 
       const browser = await vi.mocked(chromium.launch).mock.results[0].value
       await destroySession('ws-1')
@@ -210,7 +209,7 @@ describe('playwright-manager', () => {
 
     it('clears idle timer on destroy', async () => {
       const mockContext = createMockContext()
-      await handleMcpRequest('ws-1', mockContext, false)
+      await handleMcpRequest('ws-1', mockContext)
 
       startIdleTimer('ws-1')
       await destroySession('ws-1')
@@ -225,8 +224,8 @@ describe('playwright-manager', () => {
   describe('destroyAll', () => {
     it('destroys all active sessions', async () => {
       const mockContext = createMockContext()
-      await handleMcpRequest('ws-1', mockContext, false)
-      await handleMcpRequest('ws-2', mockContext, true)
+      await handleMcpRequest('ws-1', mockContext)
+      await handleMcpRequest('ws-2', mockContext)
 
       expect(getActiveCount()).toBe(2)
 

@@ -17,7 +17,7 @@ describe('loadConfig', () => {
     expect(config.envs.full.allowedTools).toContain('Bash')
     expect(config.envs.full.max_turns).toBeUndefined()
     expect(config.envs.full.env).toEqual({})
-    expect(config.envs.full.playwright).toEqual({ headless: false })
+    expect(config.envs.full.playwright).toBe(true)
 
     expect(config.envs.readonly.allowedTools).toContain('Read')
     expect(config.envs.readonly.allowedTools).not.toContain('Bash')
@@ -332,7 +332,7 @@ describe('validate playwright', () => {
     expect(config.envs.full.playwright).toBeUndefined()
   })
 
-  it('parses playwright with headless: false', () => {
+  it('parses playwright: true', () => {
     const config = validate({
       ...baseConfig,
       envs: {
@@ -340,31 +340,15 @@ describe('validate playwright', () => {
           allowedTools: 'Bash,Read',
           max_turns: 10,
           env: {},
-          playwright: { headless: false },
+          playwright: true,
         },
       },
     })
 
-    expect(config.envs.browser.playwright).toEqual({ headless: false })
+    expect(config.envs.browser.playwright).toBe(true)
   })
 
-  it('parses playwright with headless: true', () => {
-    const config = validate({
-      ...baseConfig,
-      envs: {
-        browser: {
-          allowedTools: 'Bash,Read',
-          max_turns: 10,
-          env: {},
-          playwright: { headless: true },
-        },
-      },
-    })
-
-    expect(config.envs.browser.playwright).toEqual({ headless: true })
-  })
-
-  it('rejects playwright that is not an object', () => {
+  it('rejects playwright that is not a boolean', () => {
     expect(() =>
       validate({
         ...baseConfig,
@@ -373,14 +357,14 @@ describe('validate playwright', () => {
             allowedTools: 'Bash',
             max_turns: 10,
             env: {},
-            playwright: 'not-an-object',
+            playwright: 'yes',
           },
         },
       }),
-    ).toThrow('"bad.playwright" must be an object')
+    ).toThrow('"bad.playwright" must be true')
   })
 
-  it('rejects playwright without headless', () => {
+  it('rejects playwright: false', () => {
     expect(() =>
       validate({
         ...baseConfig,
@@ -389,27 +373,11 @@ describe('validate playwright', () => {
             allowedTools: 'Bash',
             max_turns: 10,
             env: {},
-            playwright: {},
+            playwright: false,
           },
         },
       }),
-    ).toThrow('"bad.playwright.headless" must be a boolean')
-  })
-
-  it('rejects playwright with non-boolean headless', () => {
-    expect(() =>
-      validate({
-        ...baseConfig,
-        envs: {
-          bad: {
-            allowedTools: 'Bash',
-            max_turns: 10,
-            env: {},
-            playwright: { headless: 'yes' },
-          },
-        },
-      }),
-    ).toThrow('"bad.playwright.headless" must be a boolean')
+    ).toThrow('"bad.playwright" must be true')
   })
 
   it('playwright and mcpServers can coexist', () => {
@@ -420,7 +388,7 @@ describe('validate playwright', () => {
           allowedTools: 'Bash,Read',
           max_turns: 10,
           env: {},
-          playwright: { headless: false },
+          playwright: true,
           mcpServers: {
             other: { command: 'node', args: ['server.js'] },
           },
@@ -428,7 +396,7 @@ describe('validate playwright', () => {
       },
     })
 
-    expect(config.envs.browser.playwright).toEqual({ headless: false })
+    expect(config.envs.browser.playwright).toBe(true)
     expect(config.envs.browser.mcpServers).toBeDefined()
   })
 })

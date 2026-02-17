@@ -21,12 +21,11 @@ const IDLE_TIMEOUT_MS = 5 * 60 * 1000
 export async function handleMcpRequest(
   workspaceId: string,
   c: Context,
-  headless: boolean,
 ): Promise<Response | undefined> {
   let session = sessions.get(workspaceId)
 
   if (!session) {
-    const browser = await chromium.launch({ headless })
+    const browser = await chromium.launch({ headless: false })
     const context = await browser.newContext()
 
     const connectNewServer = async () => {
