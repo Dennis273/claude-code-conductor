@@ -7,7 +7,11 @@ import type { Context } from 'hono'
 // between playwright@1.58 and @playwright/mcp's internal playwright-core@1.56
 interface PlaywrightSession {
   browser: { close: () => Promise<void> }
-  transport: StreamableHTTPTransport
+  // Factory to create a new MCP server reusing the same BrowserContext.
+  // Each `claude -p` invocation needs its own server+transport pair because
+  // StreamableHTTPTransport only supports one initialization per instance.
+  connectNewServer: () => Promise<StreamableHTTPTransport>
+  transport: StreamableHTTPTransport | null
   idleTimer: ReturnType<typeof setTimeout> | null
 }
 
@@ -19,24 +23,38 @@ export async function handleMcpRequest(
   c: Context,
   headless: boolean,
 ): Promise<Response | undefined> {
-  const existing = sessions.get(workspaceId)
-  if (existing) {
-    return existing.transport.handleRequest(c)
+  let session = sessions.get(workspaceId)
+
+  if (!session) {
+    const browser = await chromium.launch({ headless })
+    const context = await browser.newContext()
+
+    const connectNewServer = async () => {
+      // @ts-expect-error playwright@1.58 BrowserContext vs @playwright/mcp's playwright-core@1.56 BrowserContext
+      const server = await createConnection({}, async () => context)
+      const transport = new StreamableHTTPTransport({
+        sessionIdGenerator: () => crypto.randomUUID(),
+      })
+      await server.connect(transport)
+      return transport
+    }
+
+    session = { browser, connectNewServer, transport: null, idleTimer: null }
+    sessions.set(workspaceId, session)
   }
 
-  const browser = await chromium.launch({ headless })
-  const context = await browser.newContext()
-  // @ts-expect-error playwright@1.58 BrowserContext vs @playwright/mcp's playwright-core@1.56 BrowserContext
-  const server = await createConnection({}, async () => context)
-  const transport = new StreamableHTTPTransport({
-    sessionIdGenerator: () => crypto.randomUUID(),
-  })
-  await server.connect(transport)
+  // POST without mcp-session-id = new MCP initialization (new claude -p process).
+  // Create a fresh server+transport to avoid "Server already initialized" error.
+  const mcpSessionId = c.req.header('mcp-session-id')
+  if (!mcpSessionId && c.req.method === 'POST') {
+    session.transport = await session.connectNewServer()
+  }
 
-  const session: PlaywrightSession = { browser, transport, idleTimer: null }
-  sessions.set(workspaceId, session)
+  if (!session.transport) {
+    return undefined
+  }
 
-  return transport.handleRequest(c)
+  return session.transport.handleRequest(c)
 }
 
 export function startIdleTimer(workspaceId: string): void {
