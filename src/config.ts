@@ -8,11 +8,16 @@ export interface McpServerConfig {
   env?: Record<string, string>
 }
 
+export interface PlaywrightConfig {
+  headless: boolean
+}
+
 export interface EnvConfig {
   allowedTools: string
   max_turns: number
   env: Record<string, string>
   mcpServers?: Record<string, McpServerConfig>
+  playwright?: PlaywrightConfig
 }
 
 export interface Config {
@@ -126,11 +131,24 @@ export function validate(raw: unknown): Config {
       }
     }
 
+    let playwright: PlaywrightConfig | undefined
+    if (env.playwright !== undefined) {
+      if (typeof env.playwright !== 'object' || env.playwright === null) {
+        throw new Error(`Config: env "${name}.playwright" must be an object`)
+      }
+      const pw = env.playwright as Record<string, unknown>
+      if (typeof pw.headless !== 'boolean') {
+        throw new Error(`Config: env "${name}.playwright.headless" must be a boolean`)
+      }
+      playwright = { headless: pw.headless }
+    }
+
     envs[name] = {
       allowedTools: env.allowedTools,
       max_turns: env.max_turns,
       env: envVars,
       ...(mcpServers !== undefined && { mcpServers }),
+      ...(playwright !== undefined && { playwright }),
     }
   }
 
