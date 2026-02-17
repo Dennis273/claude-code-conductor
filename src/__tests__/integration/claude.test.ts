@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { executePrompt } from '../core/claude.js'
-import type { ConductorEvent } from '../types.js'
+import { executePrompt } from '../../core/claude.js'
+import type { ConductorEvent } from '../../types.js'
 
 describe('executePrompt', () => {
   it('yields session_created, text_delta, and result events', async () => {
