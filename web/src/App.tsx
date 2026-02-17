@@ -1,13 +1,16 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom"
-import SessionList from "@/pages/SessionList"
+import AppLayout from "@/layouts/AppLayout"
+import LandingPage from "@/pages/LandingPage"
 import SessionDetail from "@/pages/SessionDetail"
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<SessionList />} />
-        <Route path="/sessions/:id" element={<SessionDetail />} />
+        <Route element={<AppLayout />}>
+          <Route index element={<LandingPage />} />
+          <Route path="sessions/:id" element={<SessionDetail />} />
+        </Route>
       </Routes>
     </BrowserRouter>
   )

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react"
-import { useParams, useNavigate } from "react-router-dom"
+import { useParams } from "react-router-dom"
 import {
   getSession,
   cancelSession,
@@ -21,7 +21,6 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import {
-  ArrowLeft,
   Send,
   Square,
   ChevronDown,
@@ -33,7 +32,6 @@ import Markdown from "react-markdown"
 
 export default function SessionDetail() {
   const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
 
   const [session, setSession] = useState<SessionDetailType | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -284,7 +282,7 @@ export default function SessionDetail() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center h-full">
         <p className="text-muted-foreground">Loading...</p>
       </div>
     )
@@ -292,13 +290,10 @@ export default function SessionDetail() {
 
   if (!session) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+      <div className="flex flex-col items-center justify-center h-full gap-4">
         <p className="text-muted-foreground">
           {error ?? "Session not found"}
         </p>
-        <Button variant="outline" onClick={() => navigate("/")}>
-          Back to Sessions
-        </Button>
       </div>
     )
   }
@@ -320,13 +315,9 @@ export default function SessionDetail() {
   const lastBlockIsToolUse = lastBlock?.type === "tool_use"
 
   return (
-    <div className="flex h-screen flex-col bg-background">
+    <div className="flex h-full flex-col bg-background">
       {/* Top bar */}
       <div className="flex items-center gap-3 border-b px-4 py-2.5">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium truncate">{session.title || id?.slice(0, 8)}</span>
