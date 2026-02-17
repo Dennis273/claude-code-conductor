@@ -24,11 +24,7 @@ import {
   subscribe,
   markDone,
 } from '../core/event-bus.js'
-import {
-  handleMcpRequest,
-  startIdleTimer,
-  cancelIdleTimer,
-} from '../core/playwright-manager.js'
+import type { PlaywrightManager } from '../core/playwright-manager.js'
 import { formatSSEData } from './sse-format.js'
 import type { ConductorEvent } from '../types.js'
 
@@ -53,6 +49,7 @@ function startBackgroundConsumer(
   sessionId: string,
   events: AsyncGenerator<ConductorEvent>,
   config: Config,
+  playwright: PlaywrightManager,
   playwrightWorkspaceId?: string,
 ): void {
   ;(async () => {
@@ -115,13 +112,13 @@ function startBackgroundConsumer(
       markDone(sessionId)
 
       if (playwrightWorkspaceId) {
-        startIdleTimer(playwrightWorkspaceId)
+        playwright.startIdleTimer(playwrightWorkspaceId)
       }
     }
   })()
 }
 
-export function createRoutes(config: Config): Hono {
+export function createRoutes(config: Config, playwright: PlaywrightManager): Hono {
   const app = new Hono()
 
   // POST /sessions — create session + send first message, returns JSON
@@ -271,6 +268,7 @@ export function createRoutes(config: Config): Hono {
         sessionId,
         handle.events,
         config,
+        playwright,
         envConfig.playwright ? workspaceId : undefined,
       )
 
@@ -339,7 +337,7 @@ export function createRoutes(config: Config): Hono {
     const workspaceId = basename(session.workspace)
 
     if (envConfig.playwright) {
-      cancelIdleTimer(workspaceId)
+      playwright.cancelIdleTimer(workspaceId)
     }
 
     let allowedTools = envConfig.allowedTools
@@ -388,6 +386,7 @@ export function createRoutes(config: Config): Hono {
       sessionId,
       skipSessionCreated(),
       config,
+      playwright,
       envConfig.playwright ? workspaceId : undefined,
     )
 
@@ -541,7 +540,7 @@ export function createRoutes(config: Config): Hono {
       )
     }
 
-    const response = await handleMcpRequest(workspaceId, c)
+    const response = await playwright.handleMcpRequest(workspaceId, c)
     if (!response) {
       return c.json(
         { error: { code: 'MCP_ERROR', message: 'MCP transport returned no response' } },

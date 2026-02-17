@@ -2,7 +2,7 @@ import { serve } from '@hono/node-server'
 import { loadConfig } from './config.js'
 import { createRoutes, getRunningCount, forceAbortAll } from './api/routes.js'
 import { recoverSessions } from './core/session.js'
-import { destroyAll } from './core/playwright-manager.js'
+import { createPlaywrightManager } from './core/playwright-manager.js'
 
 const config = loadConfig()
 
@@ -11,7 +11,8 @@ if (recovered > 0) {
   console.log(`Recovered ${recovered} stale session(s) from previous run`)
 }
 
-const app = createRoutes(config)
+const playwright = createPlaywrightManager(config.workspace_root)
+const app = createRoutes(config, playwright)
 
 const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(`Conductor listening on http://localhost:${info.port}`)
@@ -38,7 +39,7 @@ async function gracefulShutdown(signal: string) {
     await new Promise((r) => setTimeout(r, 1000))
   }
 
-  await destroyAll()
+  await playwright.destroyAll()
   console.log('Shutdown complete')
   process.exit(0)
 }
