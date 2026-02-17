@@ -61,7 +61,7 @@ export interface PromptOptions {
   prompt: string
   cwd: string
   allowedTools: string
-  maxTurns: number
+  maxTurns?: number
   env: Record<string, string>
   resumeSessionId?: string
 }

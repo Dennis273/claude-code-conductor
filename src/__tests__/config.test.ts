@@ -15,7 +15,7 @@ describe('loadConfig', () => {
     const config = loadConfig()
 
     expect(config.envs.full.allowedTools).toContain('Bash')
-    expect(config.envs.full.max_turns).toBe(20)
+    expect(config.envs.full.max_turns).toBeUndefined()
     expect(config.envs.full.env).toEqual({})
     expect(config.envs.full.playwright).toEqual({ headless: false })
 
@@ -23,6 +23,82 @@ describe('loadConfig', () => {
     expect(config.envs.readonly.allowedTools).not.toContain('Bash')
     expect(config.envs.readonly.max_turns).toBe(5)
     expect(config.envs.readonly.playwright).toBeUndefined()
+  })
+})
+
+describe('validate max_turns', () => {
+  const baseConfig = {
+    port: 4577,
+    concurrency: 3,
+    workspace_root: '/tmp/test',
+  }
+
+  it('max_turns is optional — env without it parses fine', () => {
+    const config = validate({
+      ...baseConfig,
+      envs: {
+        full: {
+          allowedTools: 'Bash,Read',
+          env: {},
+        },
+      },
+    })
+    expect(config.envs.full.max_turns).toBeUndefined()
+  })
+
+  it('max_turns is preserved when set', () => {
+    const config = validate({
+      ...baseConfig,
+      envs: {
+        full: {
+          allowedTools: 'Bash,Read',
+          max_turns: 50,
+          env: {},
+        },
+      },
+    })
+    expect(config.envs.full.max_turns).toBe(50)
+  })
+
+  it('rejects max_turns that is not a positive number', () => {
+    expect(() =>
+      validate({
+        ...baseConfig,
+        envs: {
+          bad: {
+            allowedTools: 'Bash',
+            max_turns: 0,
+            env: {},
+          },
+        },
+      }),
+    ).toThrow('"max_turns" must be a positive number when set')
+
+    expect(() =>
+      validate({
+        ...baseConfig,
+        envs: {
+          bad: {
+            allowedTools: 'Bash',
+            max_turns: -1,
+            env: {},
+          },
+        },
+      }),
+    ).toThrow('"max_turns" must be a positive number when set')
+
+    expect(() =>
+      validate({
+        ...baseConfig,
+        envs: {
+          bad: {
+            allowedTools: 'Bash',
+            max_turns: 'ten',
+            env: {},
+          },
+        },
+      }),
+    ).toThrow('"max_turns" must be a positive number when set')
   })
 })
 

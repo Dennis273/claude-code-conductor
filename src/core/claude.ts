@@ -13,9 +13,11 @@ export function executePrompt(options: PromptOptions): PromptHandle {
     '--include-partial-messages',
     '--allowedTools',
     options.allowedTools,
-    '--max-turns',
-    String(options.maxTurns),
   ]
+
+  if (options.maxTurns !== undefined) {
+    args.push('--max-turns', String(options.maxTurns))
+  }
 
   if (options.resumeSessionId) {
     args.push('--resume', options.resumeSessionId)

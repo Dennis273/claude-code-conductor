@@ -5,7 +5,6 @@ workspace_root: "/Users/dennis/.conductor/workspaces"
 envs:
   full:
     allowedTools: "Bash,Read,Edit,Write,Glob,Grep,WebSearch,WebFetch,Task"
-    max_turns: 20
     env: {}
     playwright:
       headless: false

@@ -19,7 +19,7 @@ export interface PlaywrightConfig {
 
 export interface EnvConfig {
   allowedTools: string
-  max_turns: number
+  max_turns?: number
   env: Record<string, string>
   mcpServers?: Record<string, McpServerConfig>
   playwright?: PlaywrightConfig
@@ -76,8 +76,8 @@ export function validate(raw: unknown): Config {
       throw new Error(`Config: env "${name}" requires "allowedTools" as a non-empty string`)
     }
 
-    if (typeof env.max_turns !== 'number' || env.max_turns < 1) {
-      throw new Error(`Config: env "${name}" requires "max_turns" as a positive number`)
+    if (env.max_turns !== undefined && (typeof env.max_turns !== 'number' || env.max_turns < 1)) {
+      throw new Error(`Config: env "${name}" "max_turns" must be a positive number when set`)
     }
 
     const envVars: Record<string, string> = {}
@@ -148,10 +148,12 @@ export function validate(raw: unknown): Config {
       playwright = { headless: pw.headless }
     }
 
+    const maxTurns = typeof env.max_turns === 'number' ? env.max_turns : undefined
+
     envs[name] = {
       allowedTools: env.allowedTools,
-      max_turns: env.max_turns,
       env: envVars,
+      ...(maxTurns !== undefined && { max_turns: maxTurns }),
       ...(mcpServers !== undefined && { mcpServers }),
       ...(playwright !== undefined && { playwright }),
     }
