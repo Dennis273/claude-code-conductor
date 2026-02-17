@@ -5,6 +5,7 @@ import type { Config } from '../config.js'
 import { executePrompt } from '../core/claude.js'
 import {
   createWorkspace,
+  writeMcpConfig,
   saveSession,
   getSession,
   updateSessionStatus,
@@ -170,12 +171,22 @@ export function createRoutes(config: Config): Hono {
       return c.json({ error: { code: 'CLONE_FAILED', message } }, 500)
     }
 
+    if (envConfig.mcpServers) {
+      writeMcpConfig(workspacePath, envConfig.mcpServers)
+    }
+
+    let allowedTools = envConfig.allowedTools
+    if (envConfig.mcpServers) {
+      const mcpPatterns = Object.keys(envConfig.mcpServers).map(name => `mcp__${name}__*`)
+      allowedTools = [allowedTools, ...mcpPatterns].join(',')
+    }
+
     runningCount++
 
     const handle = executePrompt({
       prompt,
       cwd: workspacePath,
-      allowedTools: envConfig.allowedTools,
+      allowedTools,
       maxTurns: envConfig.max_turns,
       env: envConfig.env,
     })
@@ -307,6 +318,12 @@ export function createRoutes(config: Config): Hono {
 
     const envConfig = config.envs[session.env]
 
+    let allowedTools = envConfig.allowedTools
+    if (envConfig.mcpServers) {
+      const mcpPatterns = Object.keys(envConfig.mcpServers).map(name => `mcp__${name}__*`)
+      allowedTools = [allowedTools, ...mcpPatterns].join(',')
+    }
+
     runningCount++
     updateSessionStatus(config.workspace_root, sessionId, 'running')
 
@@ -321,7 +338,7 @@ export function createRoutes(config: Config): Hono {
     const handle = executePrompt({
       prompt,
       cwd: session.workspace,
-      allowedTools: envConfig.allowedTools,
+      allowedTools,
       maxTurns: envConfig.max_turns,
       env: envConfig.env,
       resumeSessionId: sessionId,

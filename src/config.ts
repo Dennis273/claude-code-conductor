@@ -2,10 +2,17 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 
+export interface McpServerConfig {
+  command: string
+  args: string[]
+  env?: Record<string, string>
+}
+
 export interface EnvConfig {
   allowedTools: string
   max_turns: number
   env: Record<string, string>
+  mcpServers?: Record<string, McpServerConfig>
 }
 
 export interface Config {
@@ -24,7 +31,7 @@ function getConfigPath(): string {
   return resolve('conductor.yaml')
 }
 
-function validate(raw: unknown): Config {
+export function validate(raw: unknown): Config {
   if (typeof raw !== 'object' || raw === null) {
     throw new Error('Config must be a YAML object')
   }
@@ -76,10 +83,54 @@ function validate(raw: unknown): Config {
       }
     }
 
+    let mcpServers: Record<string, McpServerConfig> | undefined
+    if (env.mcpServers !== undefined) {
+      if (typeof env.mcpServers !== 'object' || env.mcpServers === null) {
+        throw new Error(`Config: env "${name}.mcpServers" must be an object`)
+      }
+      mcpServers = {}
+      for (const [serverName, serverRaw] of Object.entries(env.mcpServers as Record<string, unknown>)) {
+        if (typeof serverRaw !== 'object' || serverRaw === null) {
+          throw new Error(`Config: env "${name}.mcpServers.${serverName}" must be an object`)
+        }
+        const server = serverRaw as Record<string, unknown>
+
+        if (typeof server.command !== 'string' || server.command.length === 0) {
+          throw new Error(`Config: env "${name}.mcpServers.${serverName}.command" must be a non-empty string`)
+        }
+
+        if (!Array.isArray(server.args) || !server.args.every((a: unknown) => typeof a === 'string')) {
+          throw new Error(`Config: env "${name}.mcpServers.${serverName}.args" must be an array of strings`)
+        }
+
+        const serverEnv: Record<string, string> | undefined = (() => {
+          if (server.env === undefined) return undefined
+          if (typeof server.env !== 'object' || server.env === null) {
+            throw new Error(`Config: env "${name}.mcpServers.${serverName}.env" must be an object`)
+          }
+          const result: Record<string, string> = {}
+          for (const [ek, ev] of Object.entries(server.env as Record<string, unknown>)) {
+            if (typeof ev !== 'string') {
+              throw new Error(`Config: env "${name}.mcpServers.${serverName}.env.${ek}" must be a string`)
+            }
+            result[ek] = ev
+          }
+          return result
+        })()
+
+        mcpServers[serverName] = {
+          command: server.command,
+          args: server.args as string[],
+          ...(serverEnv !== undefined && { env: serverEnv }),
+        }
+      }
+    }
+
     envs[name] = {
       allowedTools: env.allowedTools,
       max_turns: env.max_turns,
       env: envVars,
+      ...(mcpServers !== undefined && { mcpServers }),
     }
   }
 

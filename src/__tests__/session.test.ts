@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdirSync, rmSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import {
   createWorkspace,
@@ -10,6 +11,7 @@ import {
   listSessions,
   appendContentBlock,
   getMessages,
+  writeMcpConfig,
 } from '../core/session.js'
 
 const TEST_ROOT = '/tmp/conductor-test-sessions'
@@ -232,6 +234,104 @@ describe('run_message_offset', () => {
     const retrieved = getSession(TEST_ROOT, 'session-old')
     expect(retrieved).not.toBeNull()
     expect(retrieved?.run_message_offset).toBeNull()
+  })
+})
+
+describe('writeMcpConfig', () => {
+  it('writes .mcp.json with mcpServers content', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+    const workspacePath = join(TEST_ROOT, 'ws1')
+    mkdirSync(workspacePath, { recursive: true })
+
+    writeMcpConfig(workspacePath, {
+      playwright: {
+        command: 'npx',
+        args: ['@playwright/mcp@latest', '--browser', 'chrome'],
+      },
+    })
+
+    const mcpPath = join(workspacePath, '.mcp.json')
+    expect(existsSync(mcpPath)).toBe(true)
+
+    const content = JSON.parse(readFileSync(mcpPath, 'utf-8'))
+    expect(content).toEqual({
+      mcpServers: {
+        playwright: {
+          command: 'npx',
+          args: ['@playwright/mcp@latest', '--browser', 'chrome'],
+        },
+      },
+    })
+  })
+
+  it('replaces {{workspace}} template variable in args', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+    const workspacePath = join(TEST_ROOT, 'ws2')
+    mkdirSync(workspacePath, { recursive: true })
+
+    writeMcpConfig(workspacePath, {
+      playwright: {
+        command: 'npx',
+        args: ['@playwright/mcp@latest', '--user-data-dir', '{{workspace}}/.browser-profile'],
+      },
+    })
+
+    const content = JSON.parse(readFileSync(join(workspacePath, '.mcp.json'), 'utf-8'))
+    expect(content.mcpServers.playwright.args[2]).toBe(`${workspacePath}/.browser-profile`)
+  })
+
+  it('replaces {{workspace}} in env values', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+    const workspacePath = join(TEST_ROOT, 'ws3')
+    mkdirSync(workspacePath, { recursive: true })
+
+    writeMcpConfig(workspacePath, {
+      myserver: {
+        command: 'node',
+        args: ['server.js'],
+        env: { DATA_DIR: '{{workspace}}/data' },
+      },
+    })
+
+    const content = JSON.parse(readFileSync(join(workspacePath, '.mcp.json'), 'utf-8'))
+    expect(content.mcpServers.myserver.env.DATA_DIR).toBe(`${workspacePath}/data`)
+  })
+
+  it('preserves server env in output', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+    const workspacePath = join(TEST_ROOT, 'ws4')
+    mkdirSync(workspacePath, { recursive: true })
+
+    writeMcpConfig(workspacePath, {
+      playwright: {
+        command: 'npx',
+        args: ['@playwright/mcp@latest'],
+        env: { DISPLAY: ':0' },
+      },
+    })
+
+    const content = JSON.parse(readFileSync(join(workspacePath, '.mcp.json'), 'utf-8'))
+    expect(content.mcpServers.playwright.env).toEqual({ DISPLAY: ':0' })
+  })
+
+  it('omits env key when server has no env', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+    const workspacePath = join(TEST_ROOT, 'ws5')
+    mkdirSync(workspacePath, { recursive: true })
+
+    writeMcpConfig(workspacePath, {
+      playwright: {
+        command: 'npx',
+        args: ['@playwright/mcp@latest'],
+      },
+    })
+
+    const content = JSON.parse(readFileSync(join(workspacePath, '.mcp.json'), 'utf-8'))
+    expect(content.mcpServers.playwright).toEqual({
+      command: 'npx',
+      args: ['@playwright/mcp@latest'],
+    })
+    expect('env' in content.mcpServers.playwright).toBe(false)
   })
 })
 

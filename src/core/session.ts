@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { execSync } from 'node:child_process'
 import { z } from 'zod'
 import type { Message, ContentBlock } from '../types.js'
+import type { McpServerConfig } from '../config.js'
 
 export interface SessionMetadata {
   workspace: string
@@ -76,6 +77,36 @@ function loadStore(workspaceRoot: string): SessionStore {
 function saveStore(workspaceRoot: string, store: SessionStore): void {
   const filePath = sessionsFilePath(workspaceRoot)
   writeFileSync(filePath, JSON.stringify(store, null, 2), 'utf-8')
+}
+
+export function writeMcpConfig(
+  workspacePath: string,
+  mcpServers: Record<string, McpServerConfig>,
+): void {
+  const resolved: Record<string, Record<string, unknown>> = {}
+
+  for (const [name, server] of Object.entries(mcpServers)) {
+    const entry: Record<string, unknown> = {
+      command: server.command,
+      args: server.args.map((arg) => arg.replaceAll('{{workspace}}', workspacePath)),
+    }
+
+    if (server.env) {
+      const envResolved: Record<string, string> = {}
+      for (const [k, v] of Object.entries(server.env)) {
+        envResolved[k] = v.replaceAll('{{workspace}}', workspacePath)
+      }
+      entry.env = envResolved
+    }
+
+    resolved[name] = entry
+  }
+
+  writeFileSync(
+    join(workspacePath, '.mcp.json'),
+    JSON.stringify({ mcpServers: resolved }, null, 2),
+    'utf-8',
+  )
 }
 
 export function createWorkspace(
