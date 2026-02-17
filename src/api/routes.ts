@@ -20,7 +20,6 @@ import { generateTitle } from '../core/title.js'
 import {
   createBus,
   getBus,
-  removeBus,
   publish,
   subscribe,
   markDone,
@@ -35,8 +34,6 @@ import type { ConductorEvent } from '../types.js'
 
 let runningCount = 0
 const runningProcesses = new Map<string, () => void>()
-
-const BUS_CLEANUP_DELAY_MS = 60_000
 
 export function getRunningCount(): number {
   return runningCount
@@ -120,9 +117,6 @@ function startBackgroundConsumer(
       if (playwrightWorkspaceId) {
         startIdleTimer(playwrightWorkspaceId)
       }
-
-      // Keep bus alive for late subscribers, then clean up
-      setTimeout(() => removeBus(sessionId), BUS_CLEANUP_DELAY_MS)
     }
   })()
 }

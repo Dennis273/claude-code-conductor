@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   createBus,
   getBus,
@@ -32,9 +32,14 @@ const result: ConductorEvent = {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers()
   // Clean up any leftover buses from previous tests
   removeBus('s1')
   removeBus('s2')
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('createBus / getBus / removeBus', () => {
@@ -163,5 +168,79 @@ describe('markDone', () => {
     expect(received).toHaveLength(3)
     expect(received[0]).toEqual(sessionCreated)
     expect(received[2]).toEqual(result)
+  })
+
+  it('schedules bus cleanup after 60 seconds', () => {
+    createBus('s1')
+    markDone('s1')
+
+    expect(getBus('s1')).toBeDefined()
+
+    vi.advanceTimersByTime(60_000)
+
+    expect(getBus('s1')).toBeUndefined()
+  })
+
+  it('does not clean up before 60 seconds', () => {
+    createBus('s1')
+    markDone('s1')
+
+    vi.advanceTimersByTime(59_999)
+
+    expect(getBus('s1')).toBeDefined()
+  })
+})
+
+describe('createBus cancels pending cleanup', () => {
+  it('new createBus cancels cleanup timer from previous markDone', () => {
+    // Run N
+    createBus('s1')
+    publish('s1', sessionCreated)
+    markDone('s1') // schedules cleanup in 60s
+
+    // Within 60s, Run N+1 starts
+    createBus('s1')
+
+    const received: ConductorEvent[] = []
+    subscribe('s1', (event) => received.push(event))
+
+    // Old timer fires — should be cancelled, bus should survive
+    vi.advanceTimersByTime(60_000)
+
+    expect(getBus('s1')).toBeDefined()
+
+    // Publishing still works
+    publish('s1', textDelta)
+    expect(received).toHaveLength(1)
+    expect(received[0]).toEqual(textDelta)
+  })
+
+  it('new run events are not lost after old cleanup timer would have fired', () => {
+    // Run N
+    createBus('s1')
+    publish('s1', sessionCreated)
+    markDone('s1')
+
+    // Run N+1 starts at T+30s
+    vi.advanceTimersByTime(30_000)
+    createBus('s1')
+
+    const received: ConductorEvent[] = []
+    subscribe('s1', (event) => received.push(event))
+
+    // T+60s: old timer would fire
+    vi.advanceTimersByTime(30_000)
+
+    // Bus still alive, subscriber still works
+    publish('s1', textDelta)
+    publish('s1', result)
+    expect(received).toHaveLength(2)
+
+    // Run N+1 finishes and schedules its own cleanup
+    markDone('s1')
+
+    // Its cleanup fires 60s later (T+120s)
+    vi.advanceTimersByTime(60_000)
+    expect(getBus('s1')).toBeUndefined()
   })
 })

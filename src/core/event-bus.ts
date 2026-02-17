@@ -9,8 +9,17 @@ export interface SessionBus {
 }
 
 const buses = new Map<string, SessionBus>()
+const cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+const CLEANUP_DELAY_MS = 60_000
 
 export function createBus(sessionId: string): SessionBus {
+  const existingTimer = cleanupTimers.get(sessionId)
+  if (existingTimer) {
+    clearTimeout(existingTimer)
+    cleanupTimers.delete(sessionId)
+  }
+
   const bus: SessionBus = {
     buffer: [],
     subscribers: new Set(),
@@ -66,4 +75,12 @@ export function markDone(sessionId: string): void {
   const bus = buses.get(sessionId)
   if (!bus) return
   bus.done = true
+
+  cleanupTimers.set(
+    sessionId,
+    setTimeout(() => {
+      cleanupTimers.delete(sessionId)
+      buses.delete(sessionId)
+    }, CLEANUP_DELAY_MS),
+  )
 }
