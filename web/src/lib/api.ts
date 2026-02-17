@@ -15,6 +15,7 @@ export interface SessionMetadata {
   created_at: string
   last_active_at: string
   message_count: number
+  run_message_offset: number | null
 }
 
 export interface TextBlock {

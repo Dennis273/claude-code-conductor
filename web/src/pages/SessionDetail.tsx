@@ -57,7 +57,7 @@ export default function SessionDetail() {
     }
   }, [])
 
-  // On mount: try SSE subscription (for running sessions), fall back to REST
+  // On mount: load REST first, then conditionally subscribe to SSE
   useEffect(() => {
     if (!id) return
 
@@ -66,22 +66,32 @@ export default function SessionDetail() {
 
     ;(async () => {
       try {
-        // Try subscribing to live events first (works if session has an active bus)
-        const events = subscribeEvents(id, controller.signal)
-        setLoading(false)
-        setIsStreaming(true)
-        await consumeStream(events)
-      } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") return
+        const data = await getSession(id)
+        setSession(data)
 
-        // SSE subscription failed (404 = no active bus) — load session via REST
-        try {
-          await loadSession(id)
-        } catch (loadErr) {
-          if (loadErr instanceof Error && loadErr.name === "AbortError") return
-          setError(loadErr instanceof Error ? loadErr.message : String(loadErr))
+        if (data.status === "running" && data.run_message_offset != null) {
+          // Running: show historical messages, SSE takes over for current run
+          setMessages(data.messages.slice(0, data.run_message_offset))
+          setLoading(false)
+          setIsStreaming(true)
+          try {
+            const events = subscribeEvents(id, controller.signal)
+            await consumeStream(events)
+          } catch (sseErr) {
+            // SSE failed (bus just cleaned up, etc.) — show all REST messages
+            if (sseErr instanceof Error && sseErr.name === "AbortError") return
+            setMessages(data.messages)
+            setIsStreaming(false)
+          }
+        } else {
+          // Completed/cancelled/idle: show all REST messages
+          setMessages(data.messages)
           setLoading(false)
         }
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return
+        setError(err instanceof Error ? err.message : String(err))
+        setLoading(false)
       }
     })()
 
@@ -89,13 +99,6 @@ export default function SessionDetail() {
       controller.abort()
     }
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function loadSession(sessionId: string) {
-    const data = await getSession(sessionId)
-    setSession(data)
-    setMessages(data.messages)
-    setLoading(false)
-  }
 
   // Auto-scroll when content changes
   useEffect(() => {
@@ -144,6 +147,7 @@ export default function SessionDetail() {
                     created_at: new Date().toISOString(),
                     last_active_at: new Date().toISOString(),
                     message_count: 0,
+                    run_message_offset: null,
                     messages: [],
                   },
             )
@@ -207,11 +211,8 @@ export default function SessionDetail() {
         }
       }
     } catch (err) {
-      if (err instanceof Error && err.name !== "AbortError") {
-        setError(err.message)
-      } else if (!(err instanceof Error)) {
-        setError(String(err))
-      }
+      if (err instanceof Error && err.name === "AbortError") return
+      throw err
     } finally {
       if (accumulated) {
         appendBlock("assistant", { type: "text", text: accumulated })

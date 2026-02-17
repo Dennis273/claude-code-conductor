@@ -9,6 +9,7 @@ import {
   getSession,
   updateSessionStatus,
   updateSessionTitle,
+  updateRunMessageOffset,
   listSessions,
   appendContentBlock,
   getMessages,
@@ -225,6 +226,7 @@ export function createRoutes(config: Config): Hono {
         title: fallbackTitle,
         created_at: now,
         last_active_at: now,
+        run_message_offset: 1,
       })
 
       generateTitle(prompt).then((title) => {
@@ -312,6 +314,9 @@ export function createRoutes(config: Config): Hono {
       type: 'text',
       text: prompt,
     })
+
+    const offset = getMessages(config.workspace_root, sessionId).length
+    updateRunMessageOffset(config.workspace_root, sessionId, offset)
 
     const handle = executePrompt({
       prompt,

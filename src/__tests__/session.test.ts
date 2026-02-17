@@ -6,6 +6,7 @@ import {
   saveSession,
   getSession,
   updateSessionStatus,
+  updateRunMessageOffset,
   listSessions,
   appendContentBlock,
   getMessages,
@@ -64,6 +65,7 @@ describe('session persistence', () => {
       title: 'Test session',
       created_at: '2026-02-16T00:00:00.000Z',
       last_active_at: '2026-02-16T00:00:00.000Z',
+      run_message_offset: null,
     }
 
     saveSession(TEST_ROOT, 'session-1', metadata)
@@ -90,6 +92,7 @@ describe('session persistence', () => {
       title: 'Test',
       created_at: '2026-02-16T00:00:00.000Z',
       last_active_at: '2026-02-16T00:00:00.000Z',
+      run_message_offset: null,
     })
 
     updateSessionStatus(TEST_ROOT, 'session-1', 'running')
@@ -110,6 +113,7 @@ describe('session persistence', () => {
       title: 'Session A',
       created_at: '2026-02-16T00:00:00.000Z',
       last_active_at: '2026-02-16T00:00:00.000Z',
+      run_message_offset: null,
     })
 
     saveSession(TEST_ROOT, 'session-2', {
@@ -121,12 +125,113 @@ describe('session persistence', () => {
       title: 'Session B',
       created_at: '2026-02-16T01:00:00.000Z',
       last_active_at: '2026-02-16T01:00:00.000Z',
+      run_message_offset: null,
     })
 
     const sessions = listSessions(TEST_ROOT)
     expect(Object.keys(sessions)).toHaveLength(2)
     expect(sessions['session-1'].env).toBe('full')
     expect(sessions['session-2'].env).toBe('readonly')
+  })
+})
+
+describe('run_message_offset', () => {
+  it('defaults to null for sessions saved without offset', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+
+    saveSession(TEST_ROOT, 'session-1', {
+      workspace: '/tmp/test',
+      env: 'full',
+      repo: null,
+      branch: null,
+      status: 'idle',
+      title: 'Test',
+      created_at: '2026-02-16T00:00:00.000Z',
+      last_active_at: '2026-02-16T00:00:00.000Z',
+      run_message_offset: null,
+    })
+
+    const retrieved = getSession(TEST_ROOT, 'session-1')
+    expect(retrieved?.run_message_offset).toBeNull()
+  })
+
+  it('saves and retrieves offset when provided', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+
+    saveSession(TEST_ROOT, 'session-1', {
+      workspace: '/tmp/test',
+      env: 'full',
+      repo: null,
+      branch: null,
+      status: 'running',
+      title: 'Test',
+      created_at: '2026-02-16T00:00:00.000Z',
+      last_active_at: '2026-02-16T00:00:00.000Z',
+      run_message_offset: 3,
+    })
+
+    const retrieved = getSession(TEST_ROOT, 'session-1')
+    expect(retrieved?.run_message_offset).toBe(3)
+  })
+
+  it('updateRunMessageOffset sets offset and can be read back', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+
+    saveSession(TEST_ROOT, 'session-1', {
+      workspace: '/tmp/test',
+      env: 'full',
+      repo: null,
+      branch: null,
+      status: 'running',
+      title: 'Test',
+      created_at: '2026-02-16T00:00:00.000Z',
+      last_active_at: '2026-02-16T00:00:00.000Z',
+      run_message_offset: null,
+    })
+
+    updateRunMessageOffset(TEST_ROOT, 'session-1', 5)
+
+    const retrieved = getSession(TEST_ROOT, 'session-1')
+    expect(retrieved?.run_message_offset).toBe(5)
+  })
+
+  it('updateRunMessageOffset does nothing for nonexistent session', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+
+    // Should not throw
+    updateRunMessageOffset(TEST_ROOT, 'nonexistent', 5)
+
+    const retrieved = getSession(TEST_ROOT, 'nonexistent')
+    expect(retrieved).toBeNull()
+  })
+
+  it('backward compatible: old data without run_message_offset defaults to null', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+
+    // Simulate old data by writing JSON without run_message_offset
+    const { writeFileSync } = require('node:fs')
+    const { join } = require('node:path')
+    const oldData = {
+      'session-old': {
+        workspace: '/tmp/test',
+        env: 'full',
+        repo: null,
+        branch: null,
+        status: 'idle',
+        title: 'Old session',
+        created_at: '2026-02-16T00:00:00.000Z',
+        last_active_at: '2026-02-16T00:00:00.000Z',
+      },
+    }
+    writeFileSync(
+      join(TEST_ROOT, 'sessions.json'),
+      JSON.stringify(oldData, null, 2),
+      'utf-8',
+    )
+
+    const retrieved = getSession(TEST_ROOT, 'session-old')
+    expect(retrieved).not.toBeNull()
+    expect(retrieved?.run_message_offset).toBeNull()
   })
 })
 

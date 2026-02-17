@@ -14,6 +14,7 @@ export interface SessionMetadata {
   title: string
   created_at: string
   last_active_at: string
+  run_message_offset: number | null
 }
 
 export interface SessionStore {
@@ -29,6 +30,7 @@ const SessionMetadataSchema = z.object({
   title: z.string(),
   created_at: z.string(),
   last_active_at: z.string(),
+  run_message_offset: z.number().nullable().optional().default(null),
 })
 
 const SessionStoreSchema = z.record(z.string(), SessionMetadataSchema)
@@ -145,6 +147,18 @@ export function updateSessionTitle(
   const store = loadStore(workspaceRoot)
   if (store[sessionId]) {
     store[sessionId].title = title
+    saveStore(workspaceRoot, store)
+  }
+}
+
+export function updateRunMessageOffset(
+  workspaceRoot: string,
+  sessionId: string,
+  offset: number,
+): void {
+  const store = loadStore(workspaceRoot)
+  if (store[sessionId]) {
+    store[sessionId].run_message_offset = offset
     saveStore(workspaceRoot, store)
   }
 }
