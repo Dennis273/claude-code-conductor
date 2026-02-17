@@ -47,7 +47,7 @@ export default function AppLayout() {
   }, [refreshSessions])
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen overflow-hidden">
       <Sidebar
         sessions={sessions}
         health={health}
@@ -55,7 +55,7 @@ export default function AppLayout() {
         sessionsError={sessionsError}
         onRefresh={refreshSessions}
       />
-      <main className="flex-1 min-w-0">
+      <main className="flex-1 min-w-0 overflow-hidden">
         <Outlet
           context={
             {
