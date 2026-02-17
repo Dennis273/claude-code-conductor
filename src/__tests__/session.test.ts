@@ -335,6 +335,65 @@ describe('writeMcpConfig', () => {
   })
 })
 
+describe('writeMcpConfig with HTTP entries', () => {
+  it('writes HTTP-type MCP entry', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+    const workspacePath = join(TEST_ROOT, 'ws-http1')
+    mkdirSync(workspacePath, { recursive: true })
+
+    writeMcpConfig(workspacePath, undefined, {
+      playwright: { type: 'http', url: 'http://localhost:4577/mcp?session=abc' },
+    })
+
+    const content = JSON.parse(readFileSync(join(workspacePath, '.mcp.json'), 'utf-8'))
+    expect(content).toEqual({
+      mcpServers: {
+        playwright: {
+          type: 'http',
+          url: 'http://localhost:4577/mcp?session=abc',
+        },
+      },
+    })
+  })
+
+  it('stdio and HTTP entries coexist in the same .mcp.json', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+    const workspacePath = join(TEST_ROOT, 'ws-http2')
+    mkdirSync(workspacePath, { recursive: true })
+
+    writeMcpConfig(
+      workspacePath,
+      {
+        other: { command: 'node', args: ['server.js'] },
+      },
+      {
+        playwright: { type: 'http', url: 'http://localhost:4577/mcp?session=xyz' },
+      },
+    )
+
+    const content = JSON.parse(readFileSync(join(workspacePath, '.mcp.json'), 'utf-8'))
+    expect(content.mcpServers.other).toEqual({
+      command: 'node',
+      args: ['server.js'],
+    })
+    expect(content.mcpServers.playwright).toEqual({
+      type: 'http',
+      url: 'http://localhost:4577/mcp?session=xyz',
+    })
+  })
+
+  it('writes nothing when both params are undefined', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+    const workspacePath = join(TEST_ROOT, 'ws-http3')
+    mkdirSync(workspacePath, { recursive: true })
+
+    writeMcpConfig(workspacePath)
+
+    const mcpPath = join(workspacePath, '.mcp.json')
+    expect(existsSync(mcpPath)).toBe(false)
+  })
+})
+
 describe('message persistence with CC-compatible format', () => {
   it('stores user text as a Message with TextBlock', () => {
     mkdirSync(TEST_ROOT, { recursive: true })

@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { execSync } from 'node:child_process'
 import { z } from 'zod'
 import type { Message, ContentBlock } from '../types.js'
-import type { McpServerConfig } from '../config.js'
+import type { McpServerConfig, HttpMcpServerConfig } from '../config.js'
 
 export interface SessionMetadata {
   workspace: string
@@ -81,25 +81,36 @@ function saveStore(workspaceRoot: string, store: SessionStore): void {
 
 export function writeMcpConfig(
   workspacePath: string,
-  mcpServers: Record<string, McpServerConfig>,
+  mcpServers?: Record<string, McpServerConfig>,
+  httpServers?: Record<string, HttpMcpServerConfig>,
 ): void {
+  if (!mcpServers && !httpServers) return
+
   const resolved: Record<string, Record<string, unknown>> = {}
 
-  for (const [name, server] of Object.entries(mcpServers)) {
-    const entry: Record<string, unknown> = {
-      command: server.command,
-      args: server.args.map((arg) => arg.replaceAll('{{workspace}}', workspacePath)),
-    }
-
-    if (server.env) {
-      const envResolved: Record<string, string> = {}
-      for (const [k, v] of Object.entries(server.env)) {
-        envResolved[k] = v.replaceAll('{{workspace}}', workspacePath)
+  if (mcpServers) {
+    for (const [name, server] of Object.entries(mcpServers)) {
+      const entry: Record<string, unknown> = {
+        command: server.command,
+        args: server.args.map((arg) => arg.replaceAll('{{workspace}}', workspacePath)),
       }
-      entry.env = envResolved
-    }
 
-    resolved[name] = entry
+      if (server.env) {
+        const envResolved: Record<string, string> = {}
+        for (const [k, v] of Object.entries(server.env)) {
+          envResolved[k] = v.replaceAll('{{workspace}}', workspacePath)
+        }
+        entry.env = envResolved
+      }
+
+      resolved[name] = entry
+    }
+  }
+
+  if (httpServers) {
+    for (const [name, server] of Object.entries(httpServers)) {
+      resolved[name] = { type: server.type, url: server.url }
+    }
   }
 
   writeFileSync(

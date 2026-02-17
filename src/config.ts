@@ -8,6 +8,11 @@ export interface McpServerConfig {
   env?: Record<string, string>
 }
 
+export interface HttpMcpServerConfig {
+  type: 'http'
+  url: string
+}
+
 export interface PlaywrightConfig {
   headless: boolean
 }
