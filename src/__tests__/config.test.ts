@@ -1,28 +1,43 @@
 import { describe, it, expect } from 'vitest'
-import { loadConfig, validate } from '../config.js'
+import { validate } from '../config.js'
 
-describe('loadConfig', () => {
-  it('loads conductor.yaml from project root', () => {
-    const config = loadConfig()
+describe('validate full config', () => {
+  it('parses a complete config with multiple envs', () => {
+    const config = validate({
+      port: 4577,
+      concurrency: 3,
+      workspace_root: '/tmp/workspaces',
+      envs: {
+        full: {
+          allowedTools: 'Bash,Read,Edit,Write',
+          env: {},
+          playwright: true,
+          instructions: 'Use Playwright tools for browser automation.',
+        },
+        readonly: {
+          allowedTools: 'Read,Glob,Grep,WebSearch',
+          max_turns: 5,
+          env: {},
+        },
+      },
+    })
 
     expect(config.port).toBe(4577)
     expect(config.concurrency).toBe(3)
-    expect(config.workspace_root).toBe('/Users/dennis/.conductor/workspaces')
+    expect(config.workspace_root).toBe('/tmp/workspaces')
     expect(Object.keys(config.envs)).toEqual(['full', 'readonly'])
-  })
-
-  it('parses env config correctly', () => {
-    const config = loadConfig()
 
     expect(config.envs.full.allowedTools).toContain('Bash')
     expect(config.envs.full.max_turns).toBeUndefined()
     expect(config.envs.full.env).toEqual({})
     expect(config.envs.full.playwright).toBe(true)
+    expect(config.envs.full.instructions).toBe('Use Playwright tools for browser automation.')
 
     expect(config.envs.readonly.allowedTools).toContain('Read')
     expect(config.envs.readonly.allowedTools).not.toContain('Bash')
     expect(config.envs.readonly.max_turns).toBe(5)
     expect(config.envs.readonly.playwright).toBeUndefined()
+    expect(config.envs.readonly.instructions).toBeUndefined()
   })
 })
 

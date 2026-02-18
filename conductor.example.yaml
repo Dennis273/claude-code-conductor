@@ -1,6 +1,6 @@
 port: 4577
 concurrency: 3
-workspace_root: "/Users/dennis/.conductor/workspaces"
+workspace_root: "/path/to/workspaces"
 
 envs:
   full:
