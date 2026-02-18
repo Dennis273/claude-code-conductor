@@ -465,3 +465,136 @@ describe('validate instructions', () => {
     ).toThrow('"bad.instructions" must be a string')
   })
 })
+
+describe('validate log', () => {
+  const baseConfig = {
+    port: 4577,
+    concurrency: 3,
+    workspace_root: '/tmp/test',
+    envs: {
+      full: {
+        allowedTools: 'Bash,Read',
+        env: {},
+      },
+    },
+  }
+
+  it('log is optional — config without it parses fine', () => {
+    const config = validate(baseConfig)
+    expect(config.log).toBeUndefined()
+  })
+
+  it('parses complete log config with all fields', () => {
+    const config = validate({
+      ...baseConfig,
+      log: {
+        file: '/var/log/conductor/app',
+        level: 'debug',
+        size: '20m',
+        max_files: 10,
+      },
+    })
+    expect(config.log).toEqual({
+      file: '/var/log/conductor/app',
+      level: 'debug',
+      size: '20m',
+      max_files: 10,
+    })
+  })
+
+  it('applies defaults for optional fields', () => {
+    const config = validate({
+      ...baseConfig,
+      log: {
+        file: '/var/log/conductor/app',
+      },
+    })
+    expect(config.log).toEqual({
+      file: '/var/log/conductor/app',
+      level: 'info',
+      size: '10m',
+      max_files: 5,
+    })
+  })
+
+  it('rejects log that is not an object', () => {
+    expect(() =>
+      validate({
+        ...baseConfig,
+        log: 'not-an-object',
+      }),
+    ).toThrow('"log" must be an object')
+  })
+
+  it('rejects log without file', () => {
+    expect(() =>
+      validate({
+        ...baseConfig,
+        log: {},
+      }),
+    ).toThrow('"log.file" is required and must be a non-empty string')
+  })
+
+  it('rejects log with empty file', () => {
+    expect(() =>
+      validate({
+        ...baseConfig,
+        log: { file: '' },
+      }),
+    ).toThrow('"log.file" is required and must be a non-empty string')
+  })
+
+  it('rejects log with non-string file', () => {
+    expect(() =>
+      validate({
+        ...baseConfig,
+        log: { file: 123 },
+      }),
+    ).toThrow('"log.file" is required and must be a non-empty string')
+  })
+
+  it('rejects log with invalid level', () => {
+    expect(() =>
+      validate({
+        ...baseConfig,
+        log: { file: '/tmp/app', level: 'verbose' },
+      }),
+    ).toThrow('"log.level" must be one of: fatal, error, warn, info, debug, trace')
+  })
+
+  it('rejects log with non-string level', () => {
+    expect(() =>
+      validate({
+        ...baseConfig,
+        log: { file: '/tmp/app', level: 42 },
+      }),
+    ).toThrow('"log.level" must be one of: fatal, error, warn, info, debug, trace')
+  })
+
+  it('rejects log with non-string size', () => {
+    expect(() =>
+      validate({
+        ...baseConfig,
+        log: { file: '/tmp/app', size: 1024 },
+      }),
+    ).toThrow('"log.size" must be a string')
+  })
+
+  it('rejects log with non-number max_files', () => {
+    expect(() =>
+      validate({
+        ...baseConfig,
+        log: { file: '/tmp/app', max_files: 'five' },
+      }),
+    ).toThrow('"log.max_files" must be a positive number')
+  })
+
+  it('rejects log with max_files less than 1', () => {
+    expect(() =>
+      validate({
+        ...baseConfig,
+        log: { file: '/tmp/app', max_files: 0 },
+      }),
+    ).toThrow('"log.max_files" must be a positive number')
+  })
+})

@@ -28,6 +28,7 @@ import {
 import type { PlaywrightManager } from '../core/playwright-manager.js'
 import { formatSSEData } from './sse-format.js'
 import type { ConductorEvent } from '../types.js'
+import type { Logger } from 'pino'
 
 let runningCount = 0
 const runningProcesses = new Map<string, () => void>()
@@ -119,7 +120,7 @@ function startBackgroundConsumer(
   })()
 }
 
-export function createRoutes(config: Config, playwright: PlaywrightManager): Hono {
+export function createRoutes(config: Config, playwright: PlaywrightManager, logger: Logger): Hono {
   const app = new Hono()
 
   // POST /sessions — create session + send first message, returns JSON
@@ -154,6 +155,7 @@ export function createRoutes(config: Config, playwright: PlaywrightManager): Hon
     }
 
     if (runningCount >= config.concurrency) {
+      logger.warn({ runningCount, limit: config.concurrency }, 'concurrency limit reached')
       return c.json(
         {
           error: {
@@ -275,10 +277,12 @@ export function createRoutes(config: Config, playwright: PlaywrightManager): Hon
         envConfig.playwright ? workspaceId : undefined,
       )
 
+      logger.info({ sessionId, env, workspace: workspacePath }, 'session created')
       return c.json({ session_id: sessionId, workspace: workspacePath })
     } catch (err) {
       runningCount--
       const message = err instanceof Error ? err.message : String(err)
+      logger.error({ err, env }, 'session creation failed')
       return c.json(
         { error: { code: 'SESSION_CREATE_FAILED', message } },
         500,
@@ -325,6 +329,7 @@ export function createRoutes(config: Config, playwright: PlaywrightManager): Hon
     }
 
     if (runningCount >= config.concurrency) {
+      logger.warn({ sessionId, runningCount, limit: config.concurrency }, 'concurrency limit reached')
       return c.json(
         {
           error: {
@@ -393,6 +398,7 @@ export function createRoutes(config: Config, playwright: PlaywrightManager): Hon
       envConfig.playwright ? workspaceId : undefined,
     )
 
+    logger.info({ sessionId }, 'follow-up message sent')
     return c.json({ session_id: sessionId, status: 'running' })
   })
 
@@ -413,6 +419,7 @@ export function createRoutes(config: Config, playwright: PlaywrightManager): Hon
       )
     }
 
+    logger.debug({ sessionId }, 'SSE connection established')
     return streamSSE(c, async (stream) => {
       let streamClosed = false
 
@@ -447,6 +454,7 @@ export function createRoutes(config: Config, playwright: PlaywrightManager): Hon
         })
       })
 
+      logger.debug({ sessionId }, 'SSE connection closed')
       unsub()
     })
   })
@@ -484,6 +492,7 @@ export function createRoutes(config: Config, playwright: PlaywrightManager): Hon
     abortFn()
     updateSessionStatus(config.workspace_root, sessionId, 'cancelled')
 
+    logger.info({ sessionId }, 'session cancelled')
     return c.json({ session_id: sessionId, status: 'cancelled' })
   })
 

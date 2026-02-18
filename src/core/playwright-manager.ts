@@ -3,6 +3,7 @@ import { chromium } from 'playwright'
 import { createConnection } from '@playwright/mcp'
 import { StreamableHTTPTransport } from '@hono/mcp'
 import type { Context } from 'hono'
+import type { Logger } from 'pino'
 
 // Use structural types to avoid cross-package type incompatibility
 // between playwright@1.58 and @playwright/mcp's internal playwright-core@1.56
@@ -27,7 +28,7 @@ export interface PlaywrightManager {
   getActiveCount(): number
 }
 
-export function createPlaywrightManager(workspaceRoot: string): PlaywrightManager {
+export function createPlaywrightManager(workspaceRoot: string, logger: Logger): PlaywrightManager {
   const sessions = new Map<string, PlaywrightSession>()
 
   async function handleMcpRequest(
@@ -38,6 +39,7 @@ export function createPlaywrightManager(workspaceRoot: string): PlaywrightManage
 
     if (!session) {
       const userDataDir = join(workspaceRoot, workspaceId, 'browser_data')
+      logger.info({ workspaceId, userDataDir }, 'creating persistent browser context')
       const context = await chromium.launchPersistentContext(userDataDir, { headless: false })
 
       const connectNewServer = async () => {
@@ -77,6 +79,7 @@ export function createPlaywrightManager(workspaceRoot: string): PlaywrightManage
     }
 
     session.idleTimer = setTimeout(() => {
+      logger.info({ workspaceId }, 'idle timeout reached, destroying browser context')
       void destroySession(workspaceId)
     }, IDLE_TIMEOUT_MS)
   }
@@ -97,6 +100,7 @@ export function createPlaywrightManager(workspaceRoot: string): PlaywrightManage
       clearTimeout(session.idleTimer)
     }
 
+    logger.info({ workspaceId }, 'destroying browser context')
     await session.context.close()
     sessions.delete(workspaceId)
   }

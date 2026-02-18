@@ -24,9 +24,21 @@ import { chromium } from 'playwright'
 import { createConnection } from '@playwright/mcp'
 import { StreamableHTTPTransport } from '@hono/mcp'
 import { createPlaywrightManager } from '../core/playwright-manager.js'
+import type { Logger } from 'pino'
 
 type Manager = ReturnType<typeof createPlaywrightManager>
 type McpContext = Parameters<Manager['handleMcpRequest']>[1]
+
+const mockLogger: Logger = {
+  info: vi.fn(),
+  error: vi.fn(),
+  warn: vi.fn(),
+  debug: vi.fn(),
+  fatal: vi.fn(),
+  trace: vi.fn(),
+  child: vi.fn(),
+  level: 'info',
+} as unknown as Logger
 
 function createMockContext(opts: { method?: string; mcpSessionId?: string } = {}): McpContext {
   return {
@@ -46,7 +58,7 @@ describe('playwright-manager', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.clearAllMocks()
-    manager = createPlaywrightManager('/test/workspaces')
+    manager = createPlaywrightManager('/test/workspaces', mockLogger)
 
     vi.mocked(chromium.launchPersistentContext).mockResolvedValue({
       close: vi.fn().mockResolvedValue(undefined),

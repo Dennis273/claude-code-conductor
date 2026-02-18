@@ -22,11 +22,19 @@ export interface EnvConfig {
   instructions?: string
 }
 
+export interface LogConfig {
+  file: string
+  level: string
+  size: string
+  max_files: number
+}
+
 export interface Config {
   port: number
   concurrency: number
   workspace_root: string
   envs: Record<string, EnvConfig>
+  log?: LogConfig
 }
 
 function getConfigPath(): string {
@@ -161,11 +169,45 @@ export function validate(raw: unknown): Config {
     }
   }
 
+  let log: LogConfig | undefined
+  if (obj.log !== undefined) {
+    if (typeof obj.log !== 'object' || obj.log === null) {
+      throw new Error('Config: "log" must be an object')
+    }
+
+    const logRaw = obj.log as Record<string, unknown>
+
+    if (typeof logRaw.file !== 'string' || logRaw.file.length === 0) {
+      throw new Error('Config: "log.file" is required and must be a non-empty string')
+    }
+
+    const validLevels = ['fatal', 'error', 'warn', 'info', 'debug', 'trace']
+    if (logRaw.level !== undefined && (typeof logRaw.level !== 'string' || !validLevels.includes(logRaw.level))) {
+      throw new Error('Config: "log.level" must be one of: fatal, error, warn, info, debug, trace')
+    }
+
+    if (logRaw.size !== undefined && typeof logRaw.size !== 'string') {
+      throw new Error('Config: "log.size" must be a string')
+    }
+
+    if (logRaw.max_files !== undefined && (typeof logRaw.max_files !== 'number' || logRaw.max_files < 1)) {
+      throw new Error('Config: "log.max_files" must be a positive number')
+    }
+
+    log = {
+      file: logRaw.file,
+      level: typeof logRaw.level === 'string' ? logRaw.level : 'info',
+      size: typeof logRaw.size === 'string' ? logRaw.size : '10m',
+      max_files: typeof logRaw.max_files === 'number' ? logRaw.max_files : 5,
+    }
+  }
+
   return {
     port: obj.port,
     concurrency: obj.concurrency,
     workspace_root: obj.workspace_root,
     envs,
+    ...(log !== undefined && { log }),
   }
 }
 
