@@ -120,6 +120,14 @@ export function writeMcpConfig(
   )
 }
 
+export function writeInstructions(
+  workspacePath: string,
+  instructions: string | undefined,
+): void {
+  if (!instructions) return
+  writeFileSync(join(workspacePath, 'CLAUDE.md'), instructions, 'utf-8')
+}
+
 export function createWorkspace(
   workspaceRoot: string,
   repo?: string,

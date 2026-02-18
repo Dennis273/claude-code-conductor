@@ -12,6 +12,7 @@ import {
   appendContentBlock,
   getMessages,
   writeMcpConfig,
+  writeInstructions,
 } from '../core/session.js'
 
 const TEST_ROOT = '/tmp/conductor-test-sessions'
@@ -547,5 +548,30 @@ describe('message persistence with CC-compatible format', () => {
     expect(messages[3].role).toBe('assistant')
     expect(messages[3].content).toHaveLength(1)
     expect(messages[3].content[0]).toEqual({ type: 'text', text: 'Both done' })
+  })
+})
+
+describe('writeInstructions', () => {
+  it('writes CLAUDE.md with instructions content', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+    const workspacePath = join(TEST_ROOT, 'ws-inst1')
+    mkdirSync(workspacePath, { recursive: true })
+
+    writeInstructions(workspacePath, 'You have Playwright browser tools available.')
+
+    const claudeMdPath = join(workspacePath, 'CLAUDE.md')
+    expect(existsSync(claudeMdPath)).toBe(true)
+    expect(readFileSync(claudeMdPath, 'utf-8')).toBe('You have Playwright browser tools available.')
+  })
+
+  it('does nothing when instructions is undefined', () => {
+    mkdirSync(TEST_ROOT, { recursive: true })
+    const workspacePath = join(TEST_ROOT, 'ws-inst2')
+    mkdirSync(workspacePath, { recursive: true })
+
+    writeInstructions(workspacePath, undefined)
+
+    const claudeMdPath = join(workspacePath, 'CLAUDE.md')
+    expect(existsSync(claudeMdPath)).toBe(false)
   })
 })

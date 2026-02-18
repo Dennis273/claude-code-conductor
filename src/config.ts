@@ -19,6 +19,7 @@ export interface EnvConfig {
   env: Record<string, string>
   mcpServers?: Record<string, McpServerConfig>
   playwright?: true
+  instructions?: string
 }
 
 export interface Config {
@@ -140,6 +141,14 @@ export function validate(raw: unknown): Config {
       playwright = true
     }
 
+    let instructions: string | undefined
+    if (env.instructions !== undefined) {
+      if (typeof env.instructions !== 'string') {
+        throw new Error(`Config: env "${name}.instructions" must be a string`)
+      }
+      instructions = env.instructions
+    }
+
     const maxTurns = typeof env.max_turns === 'number' ? env.max_turns : undefined
 
     envs[name] = {
@@ -148,6 +157,7 @@ export function validate(raw: unknown): Config {
       ...(maxTurns !== undefined && { max_turns: maxTurns }),
       ...(mcpServers !== undefined && { mcpServers }),
       ...(playwright !== undefined && { playwright }),
+      ...(instructions !== undefined && { instructions }),
     }
   }
 

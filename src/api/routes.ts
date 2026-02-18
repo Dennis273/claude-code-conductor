@@ -7,6 +7,7 @@ import { executePrompt } from '../core/claude.js'
 import {
   createWorkspace,
   writeMcpConfig,
+  writeInstructions,
   saveSession,
   getSession,
   updateSessionStatus,
@@ -182,6 +183,8 @@ export function createRoutes(config: Config, playwright: PlaywrightManager): Hon
     if (envConfig.mcpServers || httpServers) {
       writeMcpConfig(workspacePath, envConfig.mcpServers, httpServers)
     }
+
+    writeInstructions(workspacePath, envConfig.instructions)
 
     let allowedTools = envConfig.allowedTools
     if (envConfig.mcpServers) {

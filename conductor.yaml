@@ -7,6 +7,9 @@ envs:
     allowedTools: "Bash,Read,Edit,Write,Glob,Grep,WebSearch,WebFetch,Task"
     env: {}
     playwright: true
+    instructions: |
+      你有 Playwright 浏览器自动化工具可用（mcp__playwright__ 开头的工具）。
+      需要浏览网页、填写表单、截图时，优先使用这些工具。
   readonly:
     allowedTools: "Read,Glob,Grep,WebSearch"
     max_turns: 5

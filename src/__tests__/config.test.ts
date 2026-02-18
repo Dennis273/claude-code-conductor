@@ -400,3 +400,53 @@ describe('validate playwright', () => {
     expect(config.envs.browser.mcpServers).toBeDefined()
   })
 })
+
+describe('validate instructions', () => {
+  const baseConfig = {
+    port: 4577,
+    concurrency: 3,
+    workspace_root: '/tmp/test',
+  }
+
+  it('instructions is optional — env without it parses fine', () => {
+    const config = validate({
+      ...baseConfig,
+      envs: {
+        full: {
+          allowedTools: 'Bash,Read',
+          env: {},
+        },
+      },
+    })
+    expect(config.envs.full.instructions).toBeUndefined()
+  })
+
+  it('parses instructions string', () => {
+    const config = validate({
+      ...baseConfig,
+      envs: {
+        full: {
+          allowedTools: 'Bash,Read',
+          env: {},
+          instructions: 'You have Playwright browser tools available.',
+        },
+      },
+    })
+    expect(config.envs.full.instructions).toBe('You have Playwright browser tools available.')
+  })
+
+  it('rejects instructions that is not a string', () => {
+    expect(() =>
+      validate({
+        ...baseConfig,
+        envs: {
+          bad: {
+            allowedTools: 'Bash',
+            env: {},
+            instructions: 123,
+          },
+        },
+      }),
+    ).toThrow('"bad.instructions" must be a string')
+  })
+})
