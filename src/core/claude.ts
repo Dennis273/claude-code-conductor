@@ -30,7 +30,7 @@ export function executePrompt(options: PromptOptions): PromptHandle {
       CLAUDECODE: '',
       ...options.env,
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'],
   })
 
   const abort = () => {
