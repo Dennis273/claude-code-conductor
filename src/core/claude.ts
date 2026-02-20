@@ -48,6 +48,8 @@ export function executePrompt(options: PromptOptions): PromptHandle {
 function isAbortError(err: unknown): boolean {
   if (err instanceof DOMException && err.name === 'AbortError') return true
   if (err instanceof Error && err.name === 'AbortError') return true
+  // SDK throws a custom error with this message when AbortController.abort() is called
+  if (err instanceof Error && err.message === 'Claude Code process aborted by user') return true
   return false
 }
 
