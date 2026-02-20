@@ -9,7 +9,7 @@ describe('executePrompt', () => {
     const handle = executePrompt({
       prompt: '说"hello"这一个词，不要说别的',
       cwd: '/tmp',
-      allowedTools: 'Read',
+      allowedTools: ['Read'],
       maxTurns: 1,
       env: {},
     })
@@ -47,7 +47,7 @@ describe('executePrompt', () => {
     const handle = executePrompt({
       prompt: '用 Bash 执行 echo hello',
       cwd: '/tmp',
-      allowedTools: 'Bash',
+      allowedTools: ['Bash'],
       maxTurns: 3,
       env: {},
     })
@@ -91,7 +91,7 @@ describe('executePrompt', () => {
     const firstHandle = executePrompt({
       prompt: '记住数字42',
       cwd: '/tmp',
-      allowedTools: 'Read',
+      allowedTools: ['Read'],
       maxTurns: 1,
       env: {},
     })
@@ -108,7 +108,7 @@ describe('executePrompt', () => {
     const secondHandle = executePrompt({
       prompt: '我刚才让你记住的数字是什么？只回答数字',
       cwd: '/tmp',
-      allowedTools: 'Read',
+      allowedTools: ['Read'],
       maxTurns: 1,
       env: {},
       resumeSessionId: sessionId,

@@ -14,7 +14,7 @@ export interface HttpMcpServerConfig {
 }
 
 export interface EnvConfig {
-  allowedTools: string
+  allowedTools: string[]
   max_turns?: number
   env: Record<string, string>
   mcpServers?: Record<string, McpServerConfig>
@@ -77,8 +77,19 @@ export function validate(raw: unknown): Config {
 
     const env = envRaw as Record<string, unknown>
 
-    if (typeof env.allowedTools !== 'string' || env.allowedTools.length === 0) {
-      throw new Error(`Config: env "${name}" requires "allowedTools" as a non-empty string`)
+    let allowedTools: string[]
+    if (typeof env.allowedTools === 'string') {
+      if (env.allowedTools.length === 0) {
+        throw new Error(`Config: env "${name}" requires "allowedTools" as a non-empty string or array`)
+      }
+      allowedTools = env.allowedTools.split(',').map((s: string) => s.trim())
+    } else if (Array.isArray(env.allowedTools)) {
+      if (env.allowedTools.length === 0 || !env.allowedTools.every((t: unknown) => typeof t === 'string')) {
+        throw new Error(`Config: env "${name}" requires "allowedTools" as a non-empty array of strings`)
+      }
+      allowedTools = env.allowedTools
+    } else {
+      throw new Error(`Config: env "${name}" requires "allowedTools" as a non-empty string or array`)
     }
 
     if (env.max_turns !== undefined && (typeof env.max_turns !== 'number' || env.max_turns < 1)) {
@@ -160,7 +171,7 @@ export function validate(raw: unknown): Config {
     const maxTurns = typeof env.max_turns === 'number' ? env.max_turns : undefined
 
     envs[name] = {
-      allowedTools: env.allowedTools,
+      allowedTools,
       env: envVars,
       ...(maxTurns !== undefined && { max_turns: maxTurns }),
       ...(mcpServers !== undefined && { mcpServers }),

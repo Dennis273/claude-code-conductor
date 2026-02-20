@@ -60,7 +60,7 @@ export type ConductorEvent =
 export interface PromptOptions {
   prompt: string
   cwd: string
-  allowedTools: string
+  allowedTools: string[]
   maxTurns?: number
   env: Record<string, string>
   resumeSessionId?: string

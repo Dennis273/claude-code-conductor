@@ -188,13 +188,13 @@ export function createRoutes(config: Config, playwright: PlaywrightManager, logg
 
     writeInstructions(workspacePath, envConfig.instructions)
 
-    let allowedTools = envConfig.allowedTools
+    const allowedTools = [...envConfig.allowedTools]
     if (envConfig.mcpServers) {
       const mcpPatterns = Object.keys(envConfig.mcpServers).map(name => `mcp__${name}__*`)
-      allowedTools = [allowedTools, ...mcpPatterns].join(',')
+      allowedTools.push(...mcpPatterns)
     }
     if (envConfig.playwright) {
-      allowedTools = [allowedTools, 'mcp__playwright__*'].join(',')
+      allowedTools.push('mcp__playwright__*')
     }
 
     runningCount++
@@ -348,13 +348,13 @@ export function createRoutes(config: Config, playwright: PlaywrightManager, logg
       playwright.cancelIdleTimer(workspaceId)
     }
 
-    let allowedTools = envConfig.allowedTools
+    const allowedTools = [...envConfig.allowedTools]
     if (envConfig.mcpServers) {
       const mcpPatterns = Object.keys(envConfig.mcpServers).map(name => `mcp__${name}__*`)
-      allowedTools = [allowedTools, ...mcpPatterns].join(',')
+      allowedTools.push(...mcpPatterns)
     }
     if (envConfig.playwright) {
-      allowedTools = [allowedTools, 'mcp__playwright__*'].join(',')
+      allowedTools.push('mcp__playwright__*')
     }
 
     runningCount++

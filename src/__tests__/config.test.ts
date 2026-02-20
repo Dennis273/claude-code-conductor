@@ -466,6 +466,95 @@ describe('validate instructions', () => {
   })
 })
 
+describe('validate allowedTools', () => {
+  const baseConfig = {
+    port: 4577,
+    concurrency: 3,
+    workspace_root: '/tmp/test',
+  }
+
+  it('parses string allowedTools into array', () => {
+    const config = validate({
+      ...baseConfig,
+      envs: {
+        full: {
+          allowedTools: 'Bash,Read,Edit',
+          env: {},
+        },
+      },
+    })
+    expect(config.envs.full.allowedTools).toEqual(['Bash', 'Read', 'Edit'])
+  })
+
+  it('trims whitespace from string allowedTools', () => {
+    const config = validate({
+      ...baseConfig,
+      envs: {
+        full: {
+          allowedTools: 'Bash , Read , Edit',
+          env: {},
+        },
+      },
+    })
+    expect(config.envs.full.allowedTools).toEqual(['Bash', 'Read', 'Edit'])
+  })
+
+  it('accepts array allowedTools directly', () => {
+    const config = validate({
+      ...baseConfig,
+      envs: {
+        full: {
+          allowedTools: ['Bash', 'Read', 'Edit'],
+          env: {},
+        },
+      },
+    })
+    expect(config.envs.full.allowedTools).toEqual(['Bash', 'Read', 'Edit'])
+  })
+
+  it('rejects empty string allowedTools', () => {
+    expect(() =>
+      validate({
+        ...baseConfig,
+        envs: {
+          bad: {
+            allowedTools: '',
+            env: {},
+          },
+        },
+      }),
+    ).toThrow('"allowedTools"')
+  })
+
+  it('rejects empty array allowedTools', () => {
+    expect(() =>
+      validate({
+        ...baseConfig,
+        envs: {
+          bad: {
+            allowedTools: [],
+            env: {},
+          },
+        },
+      }),
+    ).toThrow('"allowedTools"')
+  })
+
+  it('rejects non-string, non-array allowedTools', () => {
+    expect(() =>
+      validate({
+        ...baseConfig,
+        envs: {
+          bad: {
+            allowedTools: 123,
+            env: {},
+          },
+        },
+      }),
+    ).toThrow('"allowedTools"')
+  })
+})
+
 describe('validate log', () => {
   const baseConfig = {
     port: 4577,

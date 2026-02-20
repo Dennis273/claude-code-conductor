@@ -1,9 +1,5 @@
-import { spawn } from 'node:child_process'
-import { z } from 'zod'
-
-const TitleResponse = z.object({
-  result: z.string().optional(),
-})
+import { query } from '@anthropic-ai/claude-agent-sdk'
+import type { SDKResultMessage } from '@anthropic-ai/claude-agent-sdk'
 
 /**
  * Generate a short title (2-5 words) for a session prompt using Claude Haiku.
@@ -27,49 +23,40 @@ export async function generateTitle(prompt: string): Promise<string | null> {
   }
 }
 
-function runClaude(systemPrompt: string, userPrompt: string): Promise<string | null> {
-  return new Promise((resolve) => {
-    const child = spawn(
-      'claude',
-      [
-        '-p',
-        userPrompt,
-        '--system-prompt',
+async function runClaude(systemPrompt: string, userPrompt: string): Promise<string | null> {
+  const abortController = new AbortController()
+  const timeout = setTimeout(() => abortController.abort(), 15000)
+
+  try {
+    const q = query({
+      prompt: userPrompt,
+      options: {
+        model: 'haiku',
         systemPrompt,
-        '--output-format',
-        'json',
-        '--model',
-        'haiku',
-        '--max-turns',
-        '1',
-        '--allowedTools',
-        '',
-        '--no-session-persistence',
-      ],
-      {
+        maxTurns: 1,
+        allowedTools: [],
+        abortController,
         env: { ...process.env, CLAUDECODE: '' },
-        stdio: ['ignore', 'pipe', 'pipe'],
+        permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
+        persistSession: false,
       },
-    )
-
-    let stdout = ''
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString()
     })
 
-    const timeout = setTimeout(() => {
-      child.kill('SIGTERM')
-      resolve(null)
-    }, 15000)
-
-    child.on('close', () => {
-      clearTimeout(timeout)
-      try {
-        const parseResult = TitleResponse.safeParse(JSON.parse(stdout))
-        resolve(parseResult.success ? (parseResult.data.result?.trim() ?? null) : null)
-      } catch {
-        resolve(null)
+    for await (const msg of q) {
+      if (msg.type === 'result') {
+        const result = msg as SDKResultMessage
+        if (!result.is_error && 'result' in result) {
+          return (result as SDKResultMessage & { result?: string }).result?.trim() ?? null
+        }
+        return null
       }
-    })
-  })
+    }
+
+    return null
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timeout)
+  }
 }
