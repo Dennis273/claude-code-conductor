@@ -29,6 +29,7 @@ import {
   CircleX,
 } from "lucide-react"
 import Markdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 
 export default function SessionDetail() {
   const { id } = useParams<{ id: string }>()
@@ -374,7 +375,7 @@ export default function SessionDetail() {
                 return (
                   <div key={key} className="flex justify-start">
                     <div className="max-w-[80%] rounded-lg bg-muted px-3 py-2 prose prose-sm dark:prose-invert prose-p:my-1 prose-pre:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-headings:my-1 max-w-none">
-                      <Markdown>{block.text}</Markdown>
+                      <Markdown remarkPlugins={[remarkGfm]}>{block.text}</Markdown>
                     </div>
                   </div>
                 )
@@ -411,7 +412,7 @@ export default function SessionDetail() {
           {streamingText && (
             <div className="flex justify-start">
               <div className="max-w-[80%] rounded-lg bg-muted px-3 py-2 prose prose-sm dark:prose-invert prose-p:my-1 prose-pre:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-headings:my-1 max-w-none">
-                <Markdown>{streamingText}</Markdown>
+                <Markdown remarkPlugins={[remarkGfm]}>{streamingText}</Markdown>
                 <span className="inline-block w-1.5 h-4 bg-foreground/70 animate-pulse ml-0.5 align-text-bottom" />
               </div>
             </div>
